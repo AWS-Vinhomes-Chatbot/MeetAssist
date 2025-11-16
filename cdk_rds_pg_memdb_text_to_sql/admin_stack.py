@@ -170,8 +170,8 @@ class AdminStack(Stack):
             self,
             "AdminManagerFunction",
             function_name="AdminStack-AdminManagerFunction",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="admin_manager_handler.lambda_handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,    
+            handler="admin_handler.lambda_handler",
             role=admin_lambda_role,
             code=lambda_.Code.from_asset(
                 lambda_code_path, 

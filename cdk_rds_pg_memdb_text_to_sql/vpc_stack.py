@@ -184,10 +184,10 @@ class AppStack(Stack):
         )
 
        
-        athena_endpoint = ec2.InterfaceVpaEndpoint(
+        athena_endpoint = ec2.InterfaceVpcEndpoint(
             self, "AthenaEndpoint",
             vpc=vpc,
-            service=ec2.InterfaceVpaEndpointAwsService.ATHENA,
+            service=ec2.InterfaceVpcEndpointAwsService.ATHENA   ,
             subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
             private_dns_enabled=True,
             security_groups=[database_sg]
