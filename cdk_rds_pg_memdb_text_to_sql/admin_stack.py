@@ -18,6 +18,7 @@ from aws_cdk import (
     aws_lambda as lambda_,
     aws_apigateway as apigw,
     aws_secretsmanager as sm,
+    aws_glue as glue,
     aws_logs as logs,
     Stack,
     Duration,
@@ -66,6 +67,8 @@ class AdminStack(Stack):
                 require_digits=True,
                 require_symbols=True
             ),
+            advanced_security_mode=cognito.AdvancedSecurityMode.ENFORCED,  
+            account_recovery=cognito.AccountRecovery.EMAIL_ONLY,  
             removal_policy=RemovalPolicy.DESTROY
         )
         
@@ -74,14 +77,25 @@ class AdminStack(Stack):
             self, "AdminFrontendBucket",
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
+            # security
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True
         )
 
         # 3. CloudFront Distribution (Tạo CloudFront TRƯỚC App Client)
-        oai = cloudfront.OriginAccessIdentity(self, "AdminOAI")
-        frontend_bucket.grant_read(oai)
+        oai = cloudfront.OriginAccessIdentity(
+            self, "AdminOAI",
+            comment="OAI for Admin Dashboard"
+        )
+
+        # Explicit bucket policy - chỉ cho phép OAI
+        frontend_bucket.add_to_resource_policy(iam.PolicyStatement(
+            actions=["s3:GetObject"],
+            resources=[f"{frontend_bucket.bucket_arn}/*"],
+            principals=[iam.CanonicalUserPrincipal(oai.cloud_front_origin_access_identity_s3_canonical_user_id)]
+        ))
+
 
         distribution = cloudfront.Distribution(
             self, "AdminDistribution",
@@ -134,6 +148,126 @@ class AdminStack(Stack):
         )
 
 
+        # 5A. GLUE DATABASE
+        glue_database = glue.CfnDatabase(
+            self, "ChatHistoryDatabase",
+            catalog_id=Stack.of(self).account,
+            database_input=glue.CfnDatabase.DatabaseInputProperty(
+                name="chatbot_history",
+                description="Chatbot conversation history database"
+            )
+        )
+
+        # 5B. GLUE TABLE (định nghĩa schema cho S3 JSON data)
+        glue_table = glue.CfnTable(
+            self, "ConversationsTable",
+            catalog_id=Stack.of(self).account,
+            database_name=glue_database.ref,
+            table_input=glue.CfnTable.TableInputProperty(
+                name="conversations",
+                description="Conversation history table",
+                table_type="EXTERNAL_TABLE",
+                storage_descriptor=glue.CfnTable.StorageDescriptorProperty(
+                    columns=[
+                        glue.CfnTable.ColumnProperty(name="conversation_id", type="string"),
+                        glue.CfnTable.ColumnProperty(name="user_id", type="string"),
+                        glue.CfnTable.ColumnProperty(name="timestamp", type="timestamp"),
+                        glue.CfnTable.ColumnProperty(name="user_query", type="string"),
+                        glue.CfnTable.ColumnProperty(name="sql_generated", type="string"),
+                        glue.CfnTable.ColumnProperty(name="query_results", type="string"),
+                        glue.CfnTable.ColumnProperty(name="response", type="string"),
+                        glue.CfnTable.ColumnProperty(name="status", type="string"),
+                        glue.CfnTable.ColumnProperty(name="execution_time_ms", type="int"),
+                    ],
+                    location=f"s3://{history_data_bucket.bucket_name}/conversations/",
+                    input_format="org.apache.hadoop.mapred.TextInputFormat",
+                    output_format="org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+                    serde_info=glue.CfnTable.SerdeInfoProperty(
+                        serialization_library="org.openx.data.jsonserde.JsonSerDe",
+                        parameters={
+                            "paths": "conversation_id,user_id,timestamp,user_query,sql_generated,query_results,response,status,execution_time_ms"
+                        }
+                    )
+                ),
+                partition_keys=[
+                    glue.CfnTable.ColumnProperty(name="year", type="string"),
+                    glue.CfnTable.ColumnProperty(name="month", type="string"),
+                    glue.CfnTable.ColumnProperty(name="day", type="string")
+                ]
+            )
+        )
+
+        # 5C. GLUE CRAWLER ROLE
+        glue_crawler_role = iam.Role(
+            self, "GlueCrawlerRole",
+            assumed_by=iam.ServicePrincipal("glue.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSGlueServiceRole")
+            ]
+        )
+        history_data_bucket.grant_read(glue_crawler_role)
+
+        # CloudWatch Logs permissions (cho Crawler logging)
+        glue_crawler_role.add_to_policy(iam.PolicyStatement(
+            actions=[
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            resources=[
+                f"arn:aws:logs:{Stack.of(self).region}:{Stack.of(self).account}:log-group:/aws-glue/crawlers:*"
+            ]
+        ))
+
+        # 5D. GLUE CRAWLER (scan S3 only)
+        glue_crawler = glue.CfnCrawler(
+            self, "ChatHistoryCrawler",
+            name="chatbot-history-crawler",
+            role=glue_crawler_role.role_arn,
+            database_name=glue_database.ref,
+            targets=glue.CfnCrawler.TargetsProperty(
+                s3_targets=[
+                    glue.CfnCrawler.S3TargetProperty(
+                        path=f"s3://{history_data_bucket.bucket_name}/conversations/"
+                    )
+                ]
+            ),
+            schema_change_policy=glue.CfnCrawler.SchemaChangePolicyProperty(
+                update_behavior="UPDATE_IN_DATABASE",
+                delete_behavior="LOG"
+            )
+        )
+
+        # 5E. GLUE HANDLER LAMBDA (NGOÀI VPC - chỉ trigger Glue API)
+        glue_handler_role = iam.Role(
+            self, "GlueHandlerRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
+            ]
+        )
+        
+        glue_handler_role.add_to_policy(iam.PolicyStatement(
+            actions=["glue:StartCrawler", "glue:GetCrawler"],
+            resources=[
+                f"arn:aws:glue:{Stack.of(self).region}:{Stack.of(self).account}:crawler/{glue_crawler.name}"
+            ]
+        ))
+
+        glue_handler_lambda = lambda_.Function(
+            self, "GlueHandler",
+            function_name="AdminStack-GlueHandler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="glue_handler.lambda_handler",
+            role=glue_handler_role,
+            code=lambda_.Code.from_asset(lambda_code_path),
+            timeout=Duration.seconds(30),
+            log_retention=logs.RetentionDays.ONE_WEEK,
+            environment={
+                "CRAWLER_NAME": glue_crawler.name
+            }
+        )
+
 
         # 5. Lambda 'AdminManager'
         admin_lambda_role = iam.Role(
@@ -150,26 +284,35 @@ class AdminStack(Stack):
             resources=[readonly_secret.secret_arn]
         ))
         admin_lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=["s3:GetObject", "s3:ListBucket", "s3:PutObject"],
+            actions=["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"],
             resources=[
                 history_data_bucket.bucket_arn,
-                history_data_bucket.bucket_arn + "/*"
+                f"{history_data_bucket.bucket_arn}/conversations/*"
+            ]
+        ))
+        # Separate permission for Athena results (write-only)
+        admin_lambda_role.add_to_policy(iam.PolicyStatement(
+            actions=["s3:PutObject", "s3:GetObject"],
+            resources=[
+                f"{history_data_bucket.bucket_arn}/athena-results/*"
             ]
         ))
         admin_lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults"],
-            resources=["*"] 
+            actions=["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:StopQueryExecution"],
+            resources=[f"arn:aws:athena:{Stack.of(self).region}:{Stack.of(self).account}:workgroup/primary"] 
         ))
         admin_lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=["glue:GetDatabase", "glue:GetTables", "glue:GetTable", "glue:GetPartition", "glue:GetPartitions"],
-            resources=["*"]
+            actions=["glue:GetDatabase","glue:GetTable", "glue:GetPartitions"],
+            resources=[f"arn:aws:glue:{Stack.of(self).region}:{Stack.of(self).account}:catalog",
+                f"arn:aws:glue:{Stack.of(self).region}:{Stack.of(self).account}:database/{glue_database.ref}",
+                f"arn:aws:glue:{Stack.of(self).region}:{Stack.of(self).account}:table/{glue_database.ref}/conversations"]
         ))
         # (Kết thúc phần quyền)
 
         admin_manager_lambda = lambda_.Function(
             self,
-            "AdminManagerFunction",
-            function_name="AdminStack-AdminManagerFunction",
+            "AdminManager",
+            function_name="AdminStack-AdminManager",
             runtime=lambda_.Runtime.PYTHON_3_12,    
             handler="admin_handler.lambda_handler",
             role=admin_lambda_role,
@@ -196,7 +339,10 @@ class AdminStack(Stack):
             log_retention=logs.RetentionDays.ONE_WEEK,
             environment={
                 "HISTORY_BUCKET_NAME": history_data_bucket.bucket_name,
-                "SECRET_NAME": readonly_secret.secret_name
+                "SECRET_NAME": readonly_secret.secret_name,
+                "ATHENA_DATABASE": glue_database.ref,  
+                "ATHENA_OUTPUT_LOCATION": f"s3://{history_data_bucket.bucket_name}/athena-results/",  
+                "GLUE_TABLE_NAME": "conversations"  
             },
         )
         
@@ -205,20 +351,30 @@ class AdminStack(Stack):
             self, "AdminApi",
             rest_api_name="BookingChatbotAdminApi",
             default_cors_preflight_options=apigw.CorsOptions(
-                allow_origins=apigw.Cors.ALL_ORIGINS, 
-                allow_methods=apigw.Cors.ALL_METHODS
+                allow_origins=[cloudfront_url],  # Chỉ cho phép CloudFront domain
+                allow_methods=["POST", "OPTIONS"],  # Chỉ cần POST và OPTIONS
+                allow_headers=["Content-Type", "Authorization"],
+                max_age=Duration.hours(1)
             )
         )
-        
+
+        # Cognito Authorizer
         authorizer = apigw.CognitoUserPoolsAuthorizer(self, "AdminApiAuthorizer",
             cognito_user_pools=[user_pool]
         )
-
-        api_resource = admin_api.root.add_resource("admin")
-        
+        # Endpoint: POST /admin
+        api_resource = admin_api.root.add_resource("admin")        
         api_resource.add_method(
             "POST",
             apigw.LambdaIntegration(admin_manager_lambda),
+            authorization_type=apigw.AuthorizationType.COGNITO,
+            authorizer=authorizer
+        )
+        # Endpoint: POST /crawler
+        crawler_resource = admin_api.root.add_resource("crawler")
+        crawler_resource.add_method(
+            "POST",
+            apigw.LambdaIntegration(glue_handler_lambda),
             authorization_type=apigw.AuthorizationType.COGNITO,
             authorizer=authorizer
         )
@@ -228,5 +384,8 @@ class AdminStack(Stack):
         CfnOutput(self, "CognitoAppClientId", value=user_pool_client.user_pool_client_id)
         CfnOutput(self, "CloudFrontURL", value=cloudfront_url) # Output ra URL thật
         CfnOutput(self, "AdminApiEndpoint", value=admin_api.url)
+        CfnOutput(self, "AthenaDatabase", value=glue_database.ref, description="Glue Database name") 
+        CfnOutput(self, "GlueCrawlerName", value=glue_crawler.name, description="Glue Crawler name")  
+        CfnOutput(self, "HistoryBucketName", value=history_data_bucket.bucket_name, description="S3 bucket for history")  #
         
         # (NagSuppressions...)
