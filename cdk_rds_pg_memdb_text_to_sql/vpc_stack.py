@@ -27,6 +27,8 @@ from aws_cdk import (
     aws_dynamodb as dynamodb,
     aws_secretsmanager as sm,
     aws_logs as logs,
+    aws_s3 as s3,       
+    aws_glue as glue,
     Stack, CfnOutput, Duration, CfnParameter, BundlingOptions, RemovalPolicy
 )
 from cdk_nag import NagSuppressions
@@ -39,6 +41,7 @@ class AppStack(Stack):
     security_group: ec2.ISecurityGroup
     rds_instance: rds.IDatabaseInstance
     readonly_secret: sm.ISecret
+    history_data_bucket: s3.IBucket
 
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -51,10 +54,10 @@ class AppStack(Stack):
         )
 
 
-        # VPC với max_azs=2 cho HA, và Isolated Private Subnets để bảo mật cao
+
         vpc = ec2.Vpc(
             self, "AppVPC",
-            max_azs=2,
+            max_azs=1, # Giới hạn 1 AZ để tiết kiệm chi phí cho ví dụ này
             subnet_configuration=[
                 ec2.SubnetConfiguration(
                     name="PrivateIsolated", subnet_type=ec2.SubnetType.PRIVATE_ISOLATED, cidr_mask=24
@@ -125,26 +128,67 @@ class AppStack(Stack):
         
         self.security_group = database_sg
         self.rds_instance.connections.allow_default_port_from(database_sg)
+
+
+        self.history_data_bucket = s3.Bucket(
+            self, "HistoryDataBucket",
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True
+        )
+
+
+
+
+        
         # Interface VPC Endpoints với policy để restrict access (ví dụ: chỉ read/write cụ thể)
         # khởi tạo các endpoint cần thiết
-        dynamo_endpoint = ec2.InterfaceVpcEndpoint(
+        dynamo_endpoint = ec2.GatewayVpcEndpoint(
             self, "DynamoDBEndpoint",
             vpc=vpc,
-            service=ec2.InterfaceVpcEndpointAwsService.DYNAMODB,
-            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
-            private_dns_enabled=True  # Để resolve DNS private
+            service=ec2.GatewayVpcEndpointAwsService.DYNAMODB,
+            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),           
         )
-        s3_endpoint = ec2.GatewayVpcEndpoint(  # Sử dụng Gateway cho S3 để tiết kiệm chi phí
+        # Sử dụng Gateway cho S3 để tiết kiệm chi phí
+        s3_endpoint = ec2.GatewayVpcEndpoint(  
             self, "S3Endpoint",
             vpc=vpc,
             service=ec2.GatewayVpcEndpointAwsService.S3,
             subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)]
         )
+
+
+        # Thêm policy cho S3 Gateway Endpoint
+        s3_endpoint.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            principals=[iam.AnyPrincipal()],
+            actions=["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+            resources=[
+                self.history_data_bucket.bucket_arn,
+                self.history_data_bucket.bucket_arn + "/*",
+                f"arn:aws:s3:::{s3_bucket_name.value_as_string}", 
+                f"arn:aws:s3:::{s3_bucket_name.value_as_string}/*"
+            ]
+        ))
+
+
         #thiết lập secrets manager endpoint
         secrets_endpoint = ec2.InterfaceVpcEndpoint(
             self, "SecretsManagerEndpoint",
             vpc=vpc,
             service=ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
+            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
+            private_dns_enabled=True,
+            security_groups=[database_sg]
+        )
+
+       
+        athena_endpoint = ec2.InterfaceVpaEndpoint(
+            self, "AthenaEndpoint",
+            vpc=vpc,
+            service=ec2.InterfaceVpaEndpointAwsService.ATHENA,
             subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
             private_dns_enabled=True,
             security_groups=[database_sg]

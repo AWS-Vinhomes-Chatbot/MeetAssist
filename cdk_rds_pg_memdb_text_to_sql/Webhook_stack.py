@@ -1,20 +1,21 @@
 import os
 from aws_cdk import (
     Stack,
+    Duration,
+    RemovalPolicy,
+    CfnOutput,
+    BundlingOptions,
     aws_apigateway as apigw,
     aws_lambda as lambda_,
     aws_iam as iam,
     aws_rds as rds,
-    aws_sm as sm,
+    aws_secretsmanager as sm,
+    aws_ssm as ssm,
     aws_ec2 as ec2,
     aws_cognito as cognito,
     aws_dynamodb as dynamodb,
-    aws_wafv2 as waf,
-    custom_resources as cr,
     aws_logs as logs,
-    CfnOutput,Duration,BundlingOptions
 )
-from cdk_nag import NagSuppressions
 from constructs import Construct
 
 class UserMessengerBedrockStack(Stack):
@@ -33,101 +34,174 @@ class UserMessengerBedrockStack(Stack):
             os.path.dirname(os.path.abspath(__file__)), "..", "code"
         )
 
-        # Secrets Manager for Facebook
-        
-        fb_secret = sm.Secret(self, "FbSecret", generate_secret_string=sm.SecretStringGenerator(
-            generate_string_key="verify_token",
-        ))
+        # 1) DynamoDB session table for user sessions
+        session_table = dynamodb.Table(
+            self,
+            "SessionTable",
+            partition_key=dynamodb.Attribute(
+                name="psid",
+                type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=RemovalPolicy.DESTROY,
+            point_in_time_recovery=True,
+        )
+
+        # 2) Facebook App credentials from SSM Parameter Store
+        fb_app_id_param = ssm.StringParameter.from_string_parameter_name(
+            self,
+            "FbAppIdParam",
+            string_parameter_name="/meetassist/facebook/app_id"
+        )
+        fb_app_id = fb_app_id_param.string_value
+
+        fb_app_secret_param = ssm.StringParameter.from_secure_string_parameter_attributes(
+            self,
+            "FbAppSecretParam",
+            parameter_name="/meetassist/facebook/app_secret",
+            version=1
+        )
+        fb_app_secret = fb_app_secret_param.string_value
+
+        # Store Facebook Page Access Token in Secrets Manager
+        fb_page_token_secret = sm.Secret(
+            self,
+            "FacebookPageToken",
+            secret_name="meetassist/facebook/page_token",
+            description="Facebook Page Access Token for Messenger Bot"
+        )
         
 
-        # Cognito User Pool with Facebook IdP
+        # 3) Cognito User Pool for authentication
         user_pool = cognito.UserPool(
-            self, "UserPool",
+            self,
+            "UserPool",
             user_pool_name="MessengerUserPool",
             self_sign_up_enabled=True,
             sign_in_aliases=cognito.SignInAliases(email=True),
             auto_verify=cognito.AutoVerifiedAttrs(email=True),
             mfa=cognito.Mfa.OPTIONAL,
+            password_policy=cognito.PasswordPolicy(
+                min_length=8,
+                require_lowercase=True,
+                require_uppercase=True,
+                require_digits=True,
+                require_symbols=True,
+            ),
+            account_recovery=cognito.AccountRecovery.EMAIL_ONLY,
+            removal_policy=RemovalPolicy.RETAIN,
+        ) # không login qua facebook
+        # Cognito Domain for Hosted UI
+        cognito_domain = user_pool.add_domain(
+            "CognitoDomain",
+            cognito_domain=cognito.CognitoDomainOptions(
+                domain_prefix=f"meetassist-{self.account}-{self.region}"
+            )
         )
-        # Add Facebook as Identity Provider (need App ID and Secret from Facebook Developer Console)
+        # Facebook Provider
         facebook_provider = cognito.UserPoolIdentityProviderFacebook(
             self, "FacebookProvider",
             user_pool=user_pool,
-            client_id="YOUR_FACEBOOK_APP_ID",  # Replace with actual
-            client_secret="YOUR_FACEBOOK_APP_SECRET",  # Replace with actual or use Secrets Manager
-            attribute_mapping=cognito.ProviderAttribute.other("id", "facebook_id"),
+            client_id=fb_app_id,
+            client_secret=fb_app_secret,
+            scopes=["email", "public_profile"],
+            attribute_mapping=cognito.AttributeMapping(
+                email=cognito.ProviderAttribute.FACEBOOK_EMAIL,
+                given_name=cognito.ProviderAttribute.FACEBOOK_NAME,
+            )
         )
-        user_pool_client = user_pool.add_client(
-            "MessengerClient",
-            o_auth=cognito.OAuthSettings(
-                flows=cognito.OAuthFlows(authorization_code_grant=True),
-                scopes=[cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-                callback_urls=["https://your-messenger-bot-callback-url"],  # Webview callback
+        # 4) API Gateway for Messenger webhook
+        messenger_api = apigw.RestApi(
+            self,
+            "MessengerApi",
+            rest_api_name="MessengerWebhookApi",
+            description="API Gateway for Facebook Messenger webhook",
+            deploy_options=apigw.StageOptions(
+                stage_name="prod",
+                logging_level=apigw.MethodLoggingLevel.INFO,
+                data_trace_enabled=True,
+                metrics_enabled=True,
+                throttling_rate_limit=10,
+                throttling_burst_limit=5,
             ),
-            supported_identity_providers=[cognito.UserPoolClientIdentityProvider.FACEBOOK],
+            endpoint_types=[apigw.EndpointType.REGIONAL],
+        )
+        
+        # Callback URLs
+        api_callback_url = f"{messenger_api.url}callback"
+        cognito_callback_url = (
+            f"https://{cognito_domain.domain_name}.auth.{self.region}."
+            f"amazoncognito.com/oauth2/idpresponse"
         )
 
-        # WAF for API Gateway
-        waf_web_acl = waf.CfnWebACL(
-            self, "MessengerWAF",
-            default_action=waf.CfnWebACL.DefaultActionProperty(allow={}),
-            scope="REGIONAL",
-            visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                cloud_watch_metrics_enabled=True,
-                metric_name="MessengerWAF",
-                sampled_requests_enabled=True,
-            ),
-            rules=[
-                waf.CfnWebACL.RuleProperty(
-                    name="AWSManagedRulesCommonRuleSet",
-                    priority=0,
-                    override_action={"none": {}},
-                    statement=waf.CfnWebACL.StatementProperty(
-                        managed_rule_group_statement=waf.CfnWebACL.ManagedRuleGroupStatementProperty(
-                            vendor_name="AWS", name="AWSManagedRulesCommonRuleSet"
-                        )
-                    ),
-                    visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                        sampled_requests_enabled=True, cloud_watch_metrics_enabled=True, metric_name="CommonRules"
-                    ),
+        # User Pool Client with proper OAuth settings
+        user_pool_client = user_pool.add_client(
+            "MessengerClient",
+            user_pool_client_name="MessengerBotClient",
+            generate_secret=False,
+            o_auth=cognito.OAuthSettings(
+                flows=cognito.OAuthFlows(
+                    authorization_code_grant=True,
+                    implicit_code_grant=True,
                 ),
-                # Add more rules for bot-specific protection if needed
+                scopes=[
+                    cognito.OAuthScope.OPENID,
+                    cognito.OAuthScope.EMAIL,
+                    cognito.OAuthScope.PROFILE,
+                ],
+                callback_urls=[
+                    api_callback_url,
+                    cognito_callback_url,
+                ],
+                logout_urls=[f"{messenger_api.url}logout"],
+            ),
+            supported_identity_providers=[
+                cognito.UserPoolClientIdentityProvider.FACEBOOK
+            ],
+        )
+        # Ensure client is created after Facebook provider
+        user_pool_client.node.add_dependency(facebook_provider)
+
+        # 5) IAM Role for Lambda function
+        lambda_role = iam.Role(
+            self,
+            "WebhookLambdaRole",
+            role_name="MessengerWebhookLambdaRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                ),
             ],
         )
 
-        
-        # tạo IAM Role cho Lambda function
-        lambda_role = iam.Role(
-            self, "webhookRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole")
-            ]
-        )
-        #tạo role cho Lambda function để truy cập Cognito 
-        lambda_role.attach_inline_policy(
-            iam.Policy(
-                self, "LambdaCognitoPolicy",
-                statements=[
-                    iam.PolicyStatement(
-                        effect=iam.Effect.ALLOW,
-                        actions=[
-                            "cognito-idp:AdminGetUser",
-                            "cognito-idp:AdminCreateUser",
-                            "cognito-idp:AdminInitiateAuth",
-                            "cognito-idp:AdminRespondToAuthChallenge",
-                            "cognito-idp:AdminUpdateUserAttributes",
-                        ],
-                        resources=[user_pool.user_pool_arn]
-                    )
-                ]
+        # Grant permissions
+        fb_app_id_param.grant_read(lambda_role)
+        fb_app_secret_param.grant_read(lambda_role)
+        fb_page_token_secret.grant_read(lambda_role)
+        session_table.grant_read_write_data(lambda_role)
+
+        # Cognito permissions
+        lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "cognito-idp:AdminGetUser",
+                    "cognito-idp:AdminCreateUser",
+                    "cognito-idp:AdminInitiateAuth",
+                    "cognito-idp:AdminRespondToAuthChallenge",
+                    "cognito-idp:AdminUpdateUserAttributes",
+                ],
+                resources=[user_pool.user_pool_arn],
             )
         )
-        # Lambda Functions
-        
-        webhook_receiver =  lambda_.Function(
-            self, "WebhookFunction",
-            function_name="Stack-WebhookFunction",
+
+        # 6) Lambda function for webhook processing
+        webhook_receiver = lambda_.Function(
+            self,
+            "WebhookFunction",
+            function_name="MessengerWebhookHandler",
+            description="Handles Facebook Messenger webhook events",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="webhook_handler.lambda_handler",
             code=lambda_.Code.from_asset(
@@ -138,134 +212,148 @@ class UserMessengerBedrockStack(Stack):
                     command=[
                         "bash",
                         "-c",
-                        "pip install --platform manylinux2014_x86_64 --target /asset-output --implementation cp " +
-                        "--python-version 3.12 --only-binary=:all: --upgrade -r requirements.txt && cp -au . " +
-                        "/asset-output",
-                    ]
-                )
+                        "pip install --platform manylinux2014_x86_64 "
+                        "--target /asset-output --implementation cp "
+                        "--python-version 3.12 --only-binary=:all: "
+                        "--upgrade -r requirements.txt && "
+                        "cp -au . /asset-output",
+                    ],
+                ),
             ),
             role=lambda_role,
-            timeout=Duration.seconds(60),# có thể set lâu hơn nếu cần
-            memory_size=3072,
+            timeout=Duration.seconds(30),
+            memory_size=1024,
             environment={
-            "FB_VERIFY_TOKEN": fb_secret.secret_value_from_json("verify_token").to_string(),
-            "USER_POOL_ID": user_pool.user_pool_id,
-            "CLIENT_ID": user_pool_client.user_pool_client_id,
-        },
-            log_retention=logs.RetentionDays.ONE_WEEK
-        ) 
-
-
-        fb_secret.grant_read(webhook_receiver)#phân quyền đọc secret
-        session_table.grant_read_write(webhook_receiver)#phân quyền đọc cache
-
-        
-        # API Gateway for Messenger Webhook
-        messenger_api = apigw.RestApi(
-            self, "MessengerApi",
-            rest_api_name="MessengerWebhookApi",
-            deploy_options=apigw.StageOptions(
-                logging_level=apigw.MethodLoggingLevel.INFO,
-                data_trace_enabled=True,
-            ),
-        )
-        webhook_resource = messenger_api.root.add_resource("webhook")
-        waf_assoc = waf.CfnWebACLAssociation(self, "WafAssoc", resource_arn=messenger_api.deployment_stage.stage_arn, web_acl_arn=waf_web_acl.attr_arn)
-        # API Integrations
-        webhook_resource.add_method("GET", apigw.LambdaIntegration(webhook_receiver))  # Verification
-        webhook_resource.add_method("POST", apigw.LambdaIntegration(webhook_receiver))  # Messages
-
-        
-    
-
-        # Outputs
-        CfnOutput(self, "MessengerApiUrl", value=messenger_api.url)
-        CfnOutput(self, "UserPoolId", value=user_pool.user_pool_id)
-        CfnOutput(self, "ClientId", value=user_pool_client.user_pool_client_id)
-        CfnOutput(self, "DbEndpoint", value=self.db.db_instance_endpoint_address)
-        CfnOutput(self, "GetApiKeyCommand",
-                  value=f"aws apigateway get-api-key --api-key {api_key.key_id} --include-value --query 'value' --output text",
-                  description="AWS CLI command to retrieve the API key value")
-# Trong app.py (CDK app entry):
-# app = cdk.App()
-# UserMessengerBedrockStack(app, "UserMessengerBedrockStack")
-# app.synth()
-        api = apigw.LambdaRestApi(
-            self,
-            "Text2SqlApi",
-            handler=function,
-            proxy=False,
-            integration_options=apigw.LambdaIntegrationOptions(proxy=False),
-            api_key_source_type=apigw.ApiKeySourceType.HEADER,
-            default_method_options=apigw.MethodOptions(
-                api_key_required=True
-            ),
-            endpoint_types=[apigw.EndpointType.REGIONAL]
-        )
-        # Create a request validator
-        request_validator = api.add_request_validator("RequestValidator",
-                                                      validate_request_body=True,
-                                                      validate_request_parameters=True
-                                                      )
-        query_model = api.add_model("JsonQueryModel", schema=apigw.JsonSchema(
-            type=apigw.JsonSchemaType.OBJECT,
-            properties={
-                "query": apigw.JsonSchema(
-                    type=apigw.JsonSchemaType.STRING
-                ), "conversation_context": apigw.JsonSchema(
-                    type=apigw.JsonSchemaType.ARRAY,
-                    items=apigw.JsonSchema(
-                        type=apigw.JsonSchemaType.OBJECT,
-                        properties={
-                            "role": apigw.JsonSchema(type=apigw.JsonSchemaType.STRING),
-                            "content": apigw.JsonSchema(type=apigw.JsonSchemaType.STRING)
-                        }
-                    )
-                )
+                "FB_APP_ID_PARAM": fb_app_id_param.parameter_name,
+                "FB_APP_SECRET_PARAM": fb_app_secret_param.parameter_name,
+                "FB_PAGE_TOKEN_SECRET_ARN": fb_page_token_secret.secret_arn,
+                "USER_POOL_ID": user_pool.user_pool_id,
+                "CLIENT_ID": user_pool_client.user_pool_client_id,
+                "SESSION_TABLE_NAME": session_table.table_name,
+                "RDS_HOST": db_instance.instance_endpoint.hostname,
+                "RDS_PORT": db_instance.instance_endpoint.port,
+                "DB_SECRET_ARN": readonly_secret.secret_arn,
             },
-            required=["query"]
-        ))
-        # Define the '/text-to-sql' resource with a POST method
-        text_to_sql_resource = api.root.add_resource("text-to-sql")
-        integration_responses = apigw.LambdaIntegration(function, proxy=False,
-                                                        integration_responses=[
-                                                            apigw.IntegrationResponse(status_code="200"),
-                                                            apigw.IntegrationResponse(status_code="500")
-                                                        ])
-        text_to_sql_resource.add_method("POST",
-                                        request_models={
-                                            "application/json": query_model
-                                        },
-                                        integration=integration_responses,
-                                        method_responses=[
-                                            apigw.MethodResponse(status_code="200"),
-                                            apigw.MethodResponse(status_code="500")
-                                        ],
-                                        request_validator=request_validator)
-        # Add an API token
-        api_key = api.add_api_key("Text2SqlApiKey")
+            log_retention=logs.RetentionDays.ONE_WEEK,
+        )
+        # 7) API Gateway resources and methods
+        webhook_resource = messenger_api.root.add_resource("webhook")
 
-        # Create a usage plan and associate the API key for the Gateway
-        usage_plan = api.add_usage_plan("Text2SqlUsagePlan",
-                                        throttle=apigw.ThrottleSettings(
-                                            burst_limit=100,
-                                            rate_limit=50
-                                        ))
-        usage_plan.add_api_stage(stage=api.deployment_stage)
-        usage_plan.add_api_key(api_key)
+        # GET method for webhook verification
+        webhook_resource.add_method(
+            "GET",
+            apigw.LambdaIntegration(
+                webhook_receiver,
+                proxy=True,
+            ),
+        )
+
+        # POST method for webhook events (non-proxy)
+        post_integration = apigw.LambdaIntegration(
+            webhook_receiver,
+            proxy=False,
+            request_templates={"application/json": "$input.json('$')"},
+            integration_responses=[
+                apigw.IntegrationResponse(
+                    status_code="200",
+                    response_templates={"application/json": ""},
+                )
+            ],
+        )
+
+        webhook_resource.add_method(
+            "POST",
+            post_integration,
+            method_responses=[apigw.MethodResponse(status_code="200")],
+            authorization_type=apigw.AuthorizationType.NONE,
+        )
+
+        # Callback endpoint for OAuth
+        callback_resource = messenger_api.root.add_resource("callback")
+        callback_resource.add_method(
+            "GET",
+            apigw.LambdaIntegration(
+                webhook_receiver,
+                proxy=True,
+            ),
+        )
+
+        # Usage plan
+        usage_plan = messenger_api.add_usage_plan(
+            "WebhookUsagePlan",
+            name="MessengerWebhookPlan",
+            throttle=apigw.ThrottleSettings(
+                rate_limit=10,
+                burst_limit=20,
+            ),
+        )
+
+        # Grant API Gateway permission to invoke Lambda
+        webhook_receiver.add_permission(
+            "ApiGatewayInvoke",
+            principal=iam.ServicePrincipal("apigateway.amazonaws.com"),
+            source_arn=messenger_api.arn_for_execute_api(),
+        )
 
 
+        # 8) Outputs
+        CfnOutput(
+            self,
+            "WebhookUrl",
+            value=f"{messenger_api.url}webhook",
+            description="Messenger Webhook URL - Add this to Facebook App",
+        )
 
-        
-        # Add CDK Nag suppressions for Python 3.12
-        NagSuppressions.add_resource_suppressions(function, [
-            {"id": "AwsSolutions-L1", "reason": "Python 3.12 is the stable version tested for this solution"}
-        ])
+        CfnOutput(
+            self,
+            "CallbackUrl",
+            value=api_callback_url,
+            description="OAuth Callback URL",
+        )
 
-        # DynamoDB for session storage (map PSID to Cognito tokens/user_id)
-        session_table = dynamodb.Table(
-            self, "SessionTable",
-            partition_key=dynamodb.Attribute(name="psid", type=dynamodb.AttributeType.STRING),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            removal_policy=cdk.RemovalPolicy.DESTROY,
+        CfnOutput(
+            self,
+            "CognitoHostedUIUrl",
+            value=(
+                f"https://{cognito_domain.domain_name}.auth.{self.region}."
+                f"amazoncognito.com/login?client_id="
+                f"{user_pool_client.user_pool_client_id}&"
+                f"response_type=code&redirect_uri={api_callback_url}"
+            ),
+            description="Cognito Hosted UI Login URL",
+        )
+
+        CfnOutput(
+            self,
+            "FacebookOAuthRedirectUri",
+            value=cognito_callback_url,
+            description="Add this to Facebook App Valid OAuth Redirect URIs",
+        )
+
+        CfnOutput(
+            self,
+            "UserPoolId",
+            value=user_pool.user_pool_id,
+            description="Cognito User Pool ID",
+        )
+
+        CfnOutput(
+            self,
+            "UserPoolClientId",
+            value=user_pool_client.user_pool_client_id,
+            description="Cognito User Pool Client ID",
+        )
+
+        CfnOutput(
+            self,
+            "SessionTableName",
+            value=session_table.table_name,
+            description="DynamoDB Session Table Name",
+        )
+
+        CfnOutput(
+            self,
+            "DbEndpoint",
+            value=db_instance.instance_endpoint.hostname,
+            description="RDS Database Endpoint",
         )
