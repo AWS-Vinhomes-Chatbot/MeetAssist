@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot Admin Dashboard</title>
+    <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+    <!-- ✅ DEMO MODE BANNER -->
+    <div id="demo-banner" style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+        color: white;
+        padding: 0.75rem;
+        text-align: center;
+        font-weight: 600;
+        z-index: 10000;
+        display: none;
+    ">
+        ⚠️ DEMO MODE - Authentication is disabled. All data is mocked.
+    </div>
+
+    <!-- ==================== LOADING SCREEN ==================== -->
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>Loading Dashboard...</p>
+    </div>
+
+    <!-- ==================== LOGIN SCREEN ==================== -->
+    <div id="login-screen" class="screen" style="display: none;">
+        <div class="login-container">
+            <div class="login-card">
+                <div class="login-header">
+                    <h1>🤖 Chatbot Admin</h1>
+                    <p>Manage conversation history and analytics</p>
+                </div>
+                <button id="login-btn" class="btn btn-primary btn-large">
+                    <span class="icon">🔐</span>
+                    Login with Cognito
+                </button>
+                <p class="login-footer">Secured by AWS Cognito</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MAIN DASHBOARD ==================== -->
+    <div id="dashboard" class="screen" style="display: none;">
+        <div class="dashboard-container">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="logo">
+                    <h2>🤖 Chatbot Admin</h2>
+                </div>
+                <nav class="nav-menu">
+                    <a href="#" class="nav-item active" data-tab="overview">
+                        <span class="icon">📊</span>
+                        <span>Overview</span>
+                    </a>
+                    <a href="#" class="nav-item" data-tab="conversations">
+                        <span class="icon">💬</span>
+                        <span>Conversations</span>
+                    </a>
+                    <a href="#" class="nav-item" data-tab="analytics">
+                        <span class="icon">📈</span>
+                        <span>Analytics</span>
+                    </a>
+                    <a href="#" class="nav-item" data-tab="crawler">
+                        <span class="icon">🔄</span>
+                        <span>Data Sync</span>
+                    </a>
+                </nav>
+                <div class="sidebar-footer">
+                    <div class="user-profile">
+                        <div class="avatar" id="user-avatar">A</div>
+                        <div class="user-details">
+                            <span id="user-email">admin@example.com</span>
+                            <span class="user-role">Administrator</span>
+                        </div>
+                    </div>
+                    <button id="logout-btn" class="btn-logout">
+                        <span class="icon">🚪</span>
+                        Logout
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <!-- Header -->
+                <header class="header">
+                    <div class="header-left">
+                        <h1 id="page-title">Overview</h1>
+                        <p id="page-subtitle">Welcome back! Here's what's happening today.</p>
+                    </div>
+                    <div class="header-right">
+                        <div class="notification-bell">
+                            <span class="icon">🔔</span>
+                            <span class="badge">3</span>
+                        </div>
+                        <button id="refresh-btn" class="btn-icon" title="Refresh data">
+                            <span class="icon">🔄</span>
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Tab Content Container -->
+                <div class="content">
+                    <!-- ==================== OVERVIEW TAB ==================== -->
+                    <div id="overview-tab" class="tab-content active">
+                        <!-- Stats Cards -->
+                        <div class="stats-grid">
+                            <div class="stat-card blue">
+                                <div class="stat-icon">💬</div>
+                                <div class="stat-info">
+                                    <h3>Total Conversations</h3>
+                                    <p class="stat-number" id="stat-total-convs">-</p>
+                                    <span class="stat-change positive" id="stat-total-change">+0%</span>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card green">
+                                <div class="stat-icon">✅</div>
+                                <div class="stat-info">
+                                    <h3>Success Rate</h3>
+                                    <p class="stat-number" id="stat-success-rate">-</p>
+                                    <span class="stat-change positive" id="stat-success-change">+0%</span>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card orange">
+                                <div class="stat-icon">👥</div>
+                                <div class="stat-info">
+                                    <h3>Active Users</h3>
+                                    <p class="stat-number" id="stat-active-users">-</p>
+                                    <span class="stat-change positive" id="stat-users-change">+0%</span>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card purple">
+                                <div class="stat-icon">⚡</div>
+                                <div class="stat-info">
+                                    <h3>Avg Response Time</h3>
+                                    <p class="stat-number" id="stat-avg-time">-</p>
+                                    <span class="stat-change" id="stat-time-change">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Charts -->
+                        <div class="charts-grid">
+                            <div class="chart-card">
+                                <h3>Conversations Trend (Last 7 Days)</h3>
+                                <canvas id="trendChart"></canvas>
+                            </div>
+                            
+                            <div class="chart-card">
+                                <h3>Status Distribution</h3>
+                                <canvas id="statusChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Quick Actions -->
+                        <div class="quick-actions">
+                            <h3>Quick Actions</h3>
+                            <div class="actions-grid">
+                                <button class="action-card" data-action="view-latest">
+                                    <span class="icon">📋</span>
+                                    <span>View Latest Conversations</span>
+                                </button>
+                                <button class="action-card" data-action="sync-data">
+                                    <span class="icon">🔄</span>
+                                    <span>Sync Data from S3</span>
+                                </button>
+                                <button class="action-card" data-action="export-report">
+                                    <span class="icon">📊</span>
+                                    <span>Export Analytics Report</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ==================== CONVERSATIONS TAB ==================== -->
+                    <div id="conversations-tab" class="tab-content">
+                        <div class="filters-card">
+                            <h3>Filters</h3>
+                            <div class="filters">
+                                <div class="filter-group">
+                                    <label>Start Date</label>
+                                    <input type="date" id="filter-start-date">
+                                </div>
+                                <div class="filter-group">
+                                    <label>End Date</label>
+                                    <input type="date" id="filter-end-date">
+                                </div>
+                                <div class="filter-group">
+                                    <label>User ID</label>
+                                    <input type="text" id="filter-user-id" placeholder="Enter user ID">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Status</label>
+                                    <select id="filter-status">
+                                        <option value="">All Status</option>
+                                        <option value="success">Success</option>
+                                        <option value="error">Error</option>
+                                        <option value="timeout">Timeout</option>
+                                    </select>
+                                </div>
+                                <div class="filter-actions">
+                                    <button id="apply-filters" class="btn btn-primary">
+                                        <span class="icon">🔍</span> Apply Filters
+                                    </button>
+                                    <button id="reset-filters" class="btn btn-secondary">
+                                        <span class="icon">🔄</span> Reset
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="table-card">
+                            <div class="table-header">
+                                <h3>Conversation History</h3>
+                                <div class="table-actions">
+                                    <button id="export-csv" class="btn btn-secondary">
+                                        <span class="icon">📥</span> Export CSV
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="conversations-list" class="table-container">
+                                <p class="placeholder">Click "Apply Filters" to load conversations</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ==================== ANALYTICS TAB ==================== -->
+                    <div id="analytics-tab" class="tab-content">
+                        <div class="filters-card">
+                            <h3>Date Range</h3>
+                            <div class="filters">
+                                <div class="filter-group">
+                                    <label>From</label>
+                                    <input type="date" id="analytics-start-date">
+                                </div>
+                                <div class="filter-group">
+                                    <label>To</label>
+                                    <input type="date" id="analytics-end-date">
+                                </div>
+                                <div class="filter-actions">
+                                    <button id="load-analytics" class="btn btn-primary">
+                                        <span class="icon">📊</span> Load Analytics
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="analytics-content">
+                            <!-- Metrics Overview -->
+                            <div class="metrics-grid">
+                                <div class="metric-card">
+                                    <h4>Total Queries</h4>
+                                    <p class="metric-value" id="metric-total">-</p>
+                                </div>
+                                <div class="metric-card">
+                                    <h4>Unique Users</h4>
+                                    <p class="metric-value" id="metric-users">-</p>
+                                </div>
+                                <div class="metric-card">
+                                    <h4>Success Rate</h4>
+                                    <p class="metric-value" id="metric-success">-</p>
+                                </div>
+                                <div class="metric-card">
+                                    <h4>Avg Execution Time</h4>
+                                    <p class="metric-value" id="metric-time">-</p>
+                                </div>
+                            </div>
+
+                            <!-- Analytics Chart -->
+                            <div class="chart-card">
+                                <h3>Daily Analytics</h3>
+                                <canvas id="analyticsChart"></canvas>
+                            </div>
+
+                            <!-- Top Queries Table -->
+                            <div class="table-card">
+                                <h3>Top User Queries</h3>
+                                <div id="top-queries-list" class="table-container">
+                                    <p class="placeholder">Load analytics to view top queries</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ==================== CRAWLER TAB ==================== -->
+                    <div id="crawler-tab" class="tab-content">
+                        <div class="crawler-card">
+                            <div class="crawler-header">
+                                <h3>🔄 AWS Glue Crawler</h3>
+                                <div class="crawler-status">
+                                    <span class="status-label">Status:</span>
+                                    <span id="crawler-state" class="status-badge status-unknown">UNKNOWN</span>
+                                </div>
+                            </div>
+
+                            <div class="crawler-info">
+                                <p>The Glue Crawler scans conversation data from S3 and updates the Glue Data Catalog, enabling Athena to query the latest data.</p>
+                                <ul>
+                                    <li>✓ Automatically discovers schema changes</li>
+                                    <li>✓ Creates partitions for efficient querying</li>
+                                    <li>✓ Updates metadata for Athena access</li>
+                                </ul>
+                            </div>
+
+                            <div class="crawler-actions">
+                                <button id="trigger-crawler" class="btn btn-primary btn-large">
+                                    <span class="icon">▶️</span> Start Crawler
+                                </button>
+                                <button id="check-crawler-status" class="btn btn-secondary">
+                                    <span class="icon">🔍</span> Check Status
+                                </button>
+                            </div>
+
+                            <div id="crawler-log" class="log-box">
+                                <p class="log-entry">💡 Ready to sync data. Click "Start Crawler" to begin.</p>
+                            </div>
+
+                            <div class="crawler-stats">
+                                <div class="crawler-stat">
+                                    <h4>Last Run</h4>
+                                    <p id="crawler-last-run">Never</p>
+                                </div>
+                                <div class="crawler-stat">
+                                    <h4>Duration</h4>
+                                    <p id="crawler-duration">-</p>
+                                </div>
+                                <div class="crawler-stat">
+                                    <h4>Tables Updated</h4>
+                                    <p id="crawler-tables">0</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- ==================== ERROR MODAL ==================== -->
+    <div id="error-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <div class="modal-header">
+                <span class="icon">❌</span>
+                <h2>Error</h2>
+            </div>
+            <p id="error-message"></p>
+            <button class="btn btn-primary" onclick="document.getElementById('error-modal').style.display='none'">
+                Close
+            </button>
+        </div>
+    </div>
+
+    <!-- ==================== SUCCESS MODAL ==================== -->
+    <div id="success-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <div class="modal-header">
+                <span class="icon">✅</span>
+                <h2>Success</h2>
+            </div>
+            <p id="success-message"></p>
+            <button class="btn btn-primary" onclick="document.getElementById('success-modal').style.display='none'">
+                Close
+            </button>
+        </div>
+    </div>
+
+    <!-- ==================== CONFIGURATION ==================== -->
+    <script>
+        // ⚠️ IMPORTANT: Replace with actual values from CDK Outputs after deployment
+        window.APP_CONFIG = {
+            region: 'us-east-1',
+            userPoolId: 'us-east-1_XXXXXX',  // TODO: From CDK Output "CognitoUserPoolId"
+            userPoolClientId: 'XXXXXXXXXX',  // TODO: From CDK Output "CognitoAppClientId"
+            apiEndpoint: 'https://XXXXX.execute-api.us-east-1.amazonaws.com/prod',  // TODO: From CDK Output "AdminApiEndpoint"
+            cognitoDomain: 'bookingchatbotadminpool.auth.us-east-1.amazoncognito.com'  // TODO: From Cognito console
+        };
+    </script>
+    
+     <script>
+        // Show demo banner if in demo mode
+        window.addEventListener('DOMContentLoaded', () => {
+            if (typeof DEMO_MODE !== 'undefined' && DEMO_MODE) {
+                document.getElementById('demo-banner').style.display = 'block';
+                document.querySelector('.main-content').style.marginTop = '50px';
+            }
+        });
+    </script>
+
+    <!-- Load Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="assets/script.js"></script>
+</body>
+</html>
