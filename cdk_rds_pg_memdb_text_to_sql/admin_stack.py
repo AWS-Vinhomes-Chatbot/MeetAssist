@@ -28,7 +28,9 @@ from aws_cdk import (
 )
 from cdk_nag import NagSuppressions
 from constructs import Construct
-
+from aws_cdk import aws_route53 as route53
+from aws_cdk import aws_route53_targets as targets
+from aws_cdk import aws_certificatemanager as acm
 
 class AdminStack(Stack):
 
@@ -51,25 +53,19 @@ class AdminStack(Stack):
         frontend_asset_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "..", "admin-dashboard"
         )
+        # 1. Định nghĩa domain và certificate
+        DOMAIN_NAME = "admin.meetassist.ai"          # THAY BẰNG DOMAIN THỰC CỦA BẠN
+        ROOT_DOMAIN = "meetassist.ai"                # domain gốc có Hosted Zone
 
-        # 1. Cognito User Pool cho Admin (Tạo User Pool trước)
-        user_pool = cognito.UserPool(
-            self, "AdminUserPool",
-            user_pool_name="BookingChatbotAdminPool",
-            self_sign_up_enabled=False, 
-            sign_in_aliases=cognito.SignInAliases(email=True),
-            auto_verify=cognito.AutoVerifiedAttrs(email=True),
-            mfa=cognito.Mfa.OPTIONAL,
-            password_policy=cognito.PasswordPolicy(
-                min_length=8,
-                require_lowercase=True,
-                require_uppercase=True,
-                require_digits=True,
-                require_symbols=True
-            ),
-            advanced_security_mode=cognito.AdvancedSecurityMode.ENFORCED,  
-            account_recovery=cognito.AccountRecovery.EMAIL_ONLY,  
-            removal_policy=RemovalPolicy.DESTROY
+        hosted_zone = route53.HostedZone.from_lookup(self, "HostedZone", domain_name=ROOT_DOMAIN)
+
+        # ACM Certificate bắt buộc tạo ở us-east-1 cho CloudFront
+        certificate = acm.DnsValidatedCertificate(
+            self, "AdminCertificate",
+            domain_name=DOMAIN_NAME,
+            hosted_zone=hosted_zone,
+            region="us-east-1",
+            validation=acm.CertificateValidation.from_dns()
         )
         
         # 2. S3 Bucket cho Frontend
@@ -83,68 +79,70 @@ class AdminStack(Stack):
             enforce_ssl=True
         )
 
-        # 3. CloudFront Distribution (Tạo CloudFront TRƯỚC App Client)
-        oai = cloudfront.OriginAccessIdentity(
-            self, "AdminOAI",
-            comment="OAI for Admin Dashboard"
-        )
-
-        # Explicit bucket policy - chỉ cho phép OAI
+        # 3. CloudFront + OAI
+        oai = cloudfront.OriginAccessIdentity(self, "AdminOAI", comment="OAI for Admin Dashboard")
         frontend_bucket.add_to_resource_policy(iam.PolicyStatement(
             actions=["s3:GetObject"],
             resources=[f"{frontend_bucket.bucket_arn}/*"],
             principals=[iam.CanonicalUserPrincipal(oai.cloud_front_origin_access_identity_s3_canonical_user_id)]
         ))
 
-
         distribution = cloudfront.Distribution(
             self, "AdminDistribution",
-            default_root_object="index.html", 
+            default_root_object="index.html",
+            domain_names=[DOMAIN_NAME],           # ← giờ đã có biến
+            certificate=certificate,              # ← giờ đã có certificate
             default_behavior=cloudfront.BehaviorOptions(
                 origin=origins.S3Origin(frontend_bucket, origin_access_identity=oai),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
-                origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN
+                origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
+                response_headers_policy=cloudfront.ResponseHeadersPolicy.CORS_WITH_PREFLIGHT,
             ),
-            error_responses=[ 
-                cloudfront.ErrorResponse(
-                    http_status=403,
-                    response_http_status=200,
-                    response_page_path="/index.html",
-                    ttl=Duration.minutes(0)
-                ),
-                cloudfront.ErrorResponse(
-                    http_status=404,
-                    response_http_status=200,
-                    response_page_path="/index.html",
-                    ttl=Duration.minutes(0)
+            additional_behaviors={
+                "_next/*": cloudfront.BehaviorOptions(
+                    origin=origins.S3Origin(frontend_bucket, origin_access_identity=oai),
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                 )
+            },
+            error_responses=[
+                cloudfront.ErrorResponse(http_status=403, response_http_status=200, response_page_path="/index.html"),
+                cloudfront.ErrorResponse(http_status=404, response_http_status=200, response_page_path="/index.html"),
             ]
+        )
+        
+        # Route53 Alias Record
+        route53.ARecord(
+            self, "AdminAliasRecord",
+            zone=hosted_zone,
+            record_name="admin",  # tạo admin.meetassist.ai
+            target=route53.RecordTarget.from_alias(targets.CloudFrontTarget(distribution))
         )
         
         # Deploy frontend (Placeholder, bạn sẽ đổi `sources` sau)
         s3_deployment.BucketDeployment(self, "DeployAdminUI",
-            sources=[s3_deployment.Source.data("index.html", "<html><body><h1>Admin Dashboard Placeholder</h1></body></html>")],
+            sources=[s3_deployment.Source.asset(frontend_asset_path)],  # ← dùng thư mục build thật
             destination_bucket=frontend_bucket,
             distribution=distribution,
-            distribution_paths=["/*"], 
+            distribution_paths=["/*"],
+            memory_limit=1024
         )
 
+        # URL chính thức của Admin Dashboard
+        admin_url = f"https://{DOMAIN_NAME}"
 
-        # Lấy URL của CloudFront vừa tạo
-        cloudfront_url = f"https://{distribution.distribution_domain_name}"
-        
-        # 4. Cognito App Client (Tạo SAU CloudFront)
+        # 4. Cognito App Client (dùng URL thật)
         user_pool_client = user_pool.add_client(
             "AdminAppClient",
             o_auth=cognito.OAuthSettings(
-                flows=cognito.OAuthFlows(authorization_code_grant=True, implicit_code_grant=True),
+                flows=cognito.OAuthFlows(authorization_code_grant=True, implicit_code_grant=False),
                 scopes=[cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-                # Tự động điền URL thật, không cần placeholder
-                callback_urls=[cloudfront_url, f"{cloudfront_url}/callback"], 
-                logout_urls=[cloudfront_url, f"{cloudfront_url}/logout"]
+                callback_urls=[f"{admin_url}/", f"{admin_url}/callback"],
+                logout_urls=[f"{admin_url}/", f"{admin_url}/logout"]
             ),
-            supported_identity_providers=[cognito.UserPoolClientIdentityProvider.COGNITO]
+            supported_identity_providers=[cognito.UserPoolClientIdentityProvider.COGNITO],
+            generate_secret=False
         )
 
 
@@ -351,9 +349,10 @@ class AdminStack(Stack):
             self, "AdminApi",
             rest_api_name="BookingChatbotAdminApi",
             default_cors_preflight_options=apigw.CorsOptions(
-                allow_origins=[cloudfront_url],  # Chỉ cho phép CloudFront domain
-                allow_methods=["POST", "OPTIONS"],  # Chỉ cần POST và OPTIONS
+                allow_origins=[f"https://{domain_name}"],
+                allow_methods=["GET", "POST", "OPTIONS"],
                 allow_headers=["Content-Type", "Authorization"],
+                allow_credentials=True,
                 max_age=Duration.hours(1)
             )
         )
@@ -380,12 +379,82 @@ class AdminStack(Stack):
         )
 
         # 7. Outputs
-        CfnOutput(self, "CognitoUserPoolId", value=user_pool.user_pool_id)
-        CfnOutput(self, "CognitoAppClientId", value=user_pool_client.user_pool_client_id)
-        CfnOutput(self, "CloudFrontURL", value=cloudfront_url) # Output ra URL thật
-        CfnOutput(self, "AdminApiEndpoint", value=admin_api.url)
-        CfnOutput(self, "AthenaDatabase", value=glue_database.ref, description="Glue Database name") 
-        CfnOutput(self, "GlueCrawlerName", value=glue_crawler.name, description="Glue Crawler name")  
-        CfnOutput(self, "HistoryBucketName", value=history_data_bucket.bucket_name, description="S3 bucket for history")  #
+        CfnOutput(self, "AdminDashboardURL",
+                  value=f"https://{domain_name}",
+                  description="URL truy cập Admin Dashboard (custom domain)")
+
+        CfnOutput(self, "CloudFrontDistributionDomain",
+                  value=distribution.distribution_domain_name,
+                  description="CloudFront domain (dạng d123abc.cloudfront.net)")
+
+        CfnOutput(self, "CognitoUserPoolId",
+                  value=user_pool.user_pool_id,
+                  description="Cognito User Pool ID – dùng cho aws-exports.ts")
+
+        CfnOutput(self, "CognitoAppClientId",
+                  value=user_pool_client.user_pool_client_id,
+                  description="Cognito App Client ID – dùng cho aws-exports.ts")
+
+        # Tự động tạo Cognito Domain (không cần hardcode)
+        cognito_domain = f"{user_pool.user_pool_name.lower().replace('_', '-')}-auth.auth.{Stack.of(self).region}.amazoncognito.com"
+        CfnOutput(self, "CognitoDomain",
+                  value=cognito_domain,
+                  description="Cognito Hosted UI Domain – dùng cho aws-exports.ts")
+
+        CfnOutput(self, "AdminApiEndpoint",
+                  value=admin_api.url,
+                  description="API Gateway endpoint cho Admin Dashboard")
+
+        CfnOutput(self, "AthenaDatabase",
+                  value=glue_database.ref,
+                  description="Glue Database name")
+
+        CfnOutput(self, "GlueCrawlerName",
+                  value=glue_crawler.name,
+                  description="Glue Crawler name")
+
+        CfnOutput(self, "HistoryBucketName",
+                  value=history_data_bucket.bucket_name,
+                  description="S3 bucket lưu history chat")
+              # (NagSuppressions...)
+    
+        # 8. Route 53 + Custom Domain + ACM Certificate (bắt buộc để có https://admin.yourdomain.com)
+
+        domain_name = "admin.meetassist.ai"           
+        root_domain = "meetassist.ai"                
+
+        # Certificate phải tạo ở us-east-1 trước (dùng CloudFront)
+        certificate = acm.DnsValidatedCertificate(
+            self, "AdminCertificate",
+            domain_name=domain_name,
+            hosted_zone=route53.HostedZone.from_lookup(self, "HostedZone", domain_name=root_domain),
+            region="us-east-1",        # bắt buộc cho CloudFront
+            validation=acm.CertificateValidation.from_dns()
+        )
+
+        # Cập nhật CloudFront để dùng custom domain + certificate
+        distribution.domain_names = [domain_name]
+        distribution.certificate = certificate
+
+        # Route53 Alias Record trỏ về CloudFront
+        hosted_zone = route53.HostedZone.from_lookup(self, "Zone", domain_name=root_domain)
         
-        # (NagSuppressions...)
+        route53.ARecord(
+            self, "AdminAliasRecord",
+            zone=hosted_zone,
+            record_name="admin",  # tạo admin.meetassist.ai
+            target=route53.RecordTarget.from_alias(targets.CloudFrontTarget(distribution))
+        )
+
+        # Cập nhật lại callback URLs của Cognito để dùng domain thật (rất quan trọng!)
+        user_pool_client.node.default_child.callback_urls = [f"https://{domain_name}", f"https://{domain_name}/callback"]
+        user_pool_client.node.default_child.logout_urls = [f"https://{domain_name}", f"https://{domain_name}/logout"]
+        user_pool_client.node.default_child.supported_identity_providers = ["COGNITO"]
+
+        # Cập nhật CORS của API Gateway cũng dùng domain thật
+        admin_api.default_cors_preflight_options = apigw.CorsOptions(
+            allow_origins=[f"https://{domain_name}"],
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+            max_age=Duration.hours(1)
+        )
