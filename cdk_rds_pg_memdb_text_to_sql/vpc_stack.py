@@ -183,15 +183,18 @@ class AppStack(Stack):
             security_groups=[database_sg]
         )
 
-       
-        athena_endpoint = ec2.InterfaceVpcEndpoint(
-            self, "AthenaEndpoint",
-            vpc=vpc,
-            service=ec2.InterfaceVpcEndpointAwsService.ATHENA   ,
-            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
-            private_dns_enabled=True,
-            security_groups=[database_sg]
+        bedrock_endpoint = ec2.InterfaceVpcEndpoint(
+        self, "BedrockRuntimeEndpoint",
+        vpc=vpc,
+        service=ec2.InterfaceVpcEndpointAwsService.BEDROCK_RUNTIME,
+        subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
+        private_dns_enabled=True,
+        security_groups=[database_sg]
         )
 
+
+        
+       
+        
         
         
