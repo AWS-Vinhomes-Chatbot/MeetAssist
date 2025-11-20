@@ -21,6 +21,7 @@ from aws_cdk import (
     aws_logs as logs,
     aws_events as events,
     aws_events_targets as targets,
+    CustomResource,
     Stack,
     Duration,
     BundlingOptions,
@@ -56,22 +57,22 @@ class AdminStack(Stack):
         )
         
         # ==================== DOMAIN + CERTIFICATE ====================
-        DOMAIN_NAME = "admin.meetassist.ai"
-        ROOT_DOMAIN = "meetassist.ai"
-
-        hosted_zone = route53.HostedZone.from_lookup(
-            self, "HostedZone", 
-            domain_name=ROOT_DOMAIN
-        )
-
-        certificate = acm.DnsValidatedCertificate(
-            self, "AdminCertificate",
-            domain_name=DOMAIN_NAME,
-            hosted_zone=hosted_zone,
-            region="us-east-1",
-            validation=acm.CertificateValidation.from_dns()
-        )
+        # ⭐ COMMENT TẠM thời - dùng khi có domain
+        # DOMAIN_NAME = "admin.meetassist.ai"
+        # ROOT_DOMAIN = "meetassist.ai"
         
+        # hosted_zone = route53.HostedZone.from_lookup(
+        #     self, "HostedZone", 
+        #     domain_name=ROOT_DOMAIN
+        # )
+        
+        # certificate = acm.DnsValidatedCertificate(
+        #     self, "AdminCertificate",
+        #     domain_name=DOMAIN_NAME,
+        #     hosted_zone=hosted_zone,
+        #     region="us-east-1",
+        #     validation=acm.CertificateValidation.from_dns()
+        # )
         # ==================== COGNITO USER POOL ====================
         user_pool = cognito.UserPool(
             self, "AdminUserPool",
@@ -96,33 +97,6 @@ class AdminStack(Stack):
             )
         )
 
-        user_pool_client = user_pool.add_client(
-            "AdminAppClient",
-            o_auth=cognito.OAuthSettings(
-                flows=cognito.OAuthFlows(
-                    authorization_code_grant=True,
-                    implicit_code_grant=False
-                ),
-                scopes=[
-                    cognito.OAuthScope.OPENID,
-                    cognito.OAuthScope.EMAIL,
-                    cognito.OAuthScope.PROFILE
-                ],
-                callback_urls=[
-                    f"https://{DOMAIN_NAME}/",
-                    f"https://{DOMAIN_NAME}/callback"
-                ],
-                logout_urls=[
-                    f"https://{DOMAIN_NAME}/",
-                    f"https://{DOMAIN_NAME}/logout"
-                ]
-            ),
-            supported_identity_providers=[
-                cognito.UserPoolClientIdentityProvider.COGNITO
-            ],
-            generate_secret=False
-        )
-        
         # ==================== S3 + CLOUDFRONT ====================
         frontend_bucket = s3.Bucket(
             self, "AdminFrontendBucket",
@@ -149,8 +123,9 @@ class AdminStack(Stack):
         distribution = cloudfront.Distribution(
             self, "AdminDistribution",
             default_root_object="index.html",
-            domain_names=[DOMAIN_NAME],
-            certificate=certificate,
+            #  BỎ domain_names và certificate khi test
+            # domain_names=[DOMAIN_NAME],
+            # certificate=certificate,
             default_behavior=cloudfront.BehaviorOptions(
                 origin=origins.S3Origin(
                     frontend_bucket,
@@ -175,14 +150,78 @@ class AdminStack(Stack):
             ]
         )
         
-        route53.ARecord(
-            self, "AdminAliasRecord",
-            zone=hosted_zone,
-            record_name="admin",
-            target=route53.RecordTarget.from_alias(
-                route53_targets.CloudFrontTarget(distribution)
+        #  COMMENT tạm Route53 record
+        # route53.ARecord(
+        #     self, "AdminAliasRecord",
+        #     zone=hosted_zone,
+        #     record_name="admin",
+        #     target=route53.RecordTarget.from_alias(
+        #         route53_targets.CloudFrontTarget(distribution)
+        #     )
+        # )
+
+        # ==================== COGNITO APP CLIENT ====================
+        # Tạo Cognito client SAU KHI đã có CloudFront distribution
+        user_pool_client = user_pool.add_client(
+            "AdminAppClient",
+            o_auth=cognito.OAuthSettings(
+                flows=cognito.OAuthFlows(
+                    authorization_code_grant=True,
+                    implicit_code_grant=False
+                ),
+                scopes=[
+                    cognito.OAuthScope.OPENID,
+                    cognito.OAuthScope.EMAIL,
+                    cognito.OAuthScope.PROFILE
+                ],
+                callback_urls=[
+                    "http://localhost:3000/callback"  # Placeholder - sẽ được update bởi Custom Resource
+                ],
+                logout_urls=[
+                    "http://localhost:3000/"
+                ]
+            ),
+            supported_identity_providers=[
+                cognito.UserPoolClientIdentityProvider.COGNITO
+            ],
+            generate_secret=False
+        )
+
+        # ==================== CUSTOM RESOURCE ====================
+        # Tự động update Cognito callback URLs với CloudFront domain
+        custom_resource_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "custom_resource"
+        )
+        
+        update_cognito_lambda = lambda_.Function(
+            self, "UpdateCognitoCallback",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="update_cognito_callback.handler",
+            code=lambda_.Code.from_asset(custom_resource_path),
+            timeout=Duration.seconds(60),
+            description="Update Cognito User Pool Client callback URLs with CloudFront domain"
+        )
+        
+        update_cognito_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["cognito-idp:UpdateUserPoolClient"],
+                resources=[user_pool.user_pool_arn]
             )
         )
+        
+        update_cognito_cr = CustomResource(
+            self, "UpdateCognitoCallbackResource",
+            service_token=update_cognito_lambda.function_arn,
+            properties={
+                "UserPoolId": user_pool.user_pool_id,
+                "ClientId": user_pool_client.user_pool_client_id,
+                "CloudFrontDomain": distribution.distribution_domain_name
+            }
+        )
+        
+        # Đảm bảo Custom Resource chạy SAU khi CloudFront và Cognito client đã tạo xong
+        update_cognito_cr.node.add_dependency(distribution)
+        update_cognito_cr.node.add_dependency(user_pool_client)
         
         s3_deployment.BucketDeployment(
             self, "DeployAdminUI",
@@ -429,17 +468,21 @@ class AdminStack(Stack):
             self, "AdminApi",
             rest_api_name="MeetAssistAdminApi",
             default_cors_preflight_options=apigw.CorsOptions(
-                allow_origins=[f"https://{DOMAIN_NAME}"],
-                allow_methods=["GET", "POST", "OPTIONS"],
-                allow_headers=[
-                    "Content-Type",
-                    "Authorization",
-                    "X-Amz-Date",
-                    "X-Api-Key",
-                    "X-Amz-Security-Token"
-                ],
-                allow_credentials=True,
-                max_age=Duration.hours(1)
+                # allow_origins=[f"https://{DOMAIN_NAME}"],
+                # allow_methods=["GET", "POST", "OPTIONS"],
+                # allow_headers=[
+                #     "Content-Type",
+                #     "Authorization",
+                #     "X-Amz-Date",
+                #     "X-Api-Key",
+                #     "X-Amz-Security-Token"
+                # ],
+                # allow_credentials=True,
+                # max_age=Duration.hours(1)
+
+            # ⭐ ALLOW tất cả origin khi test (SAU NÀY lock lại)
+                allow_origins=["*"],  # Hoặc dùng CloudFront domain cụ thể
+                
             ),
             deploy_options=apigw.StageOptions(
                 throttling_rate_limit=100,
@@ -475,7 +518,8 @@ class AdminStack(Stack):
         # ==================== OUTPUTS ====================
         CfnOutput(
             self, "AdminDashboardURL",
-            value=f"https://{DOMAIN_NAME}",
+            #  dùng CloudFront domain
+            value=f"https://{distribution.distribution_domain_name}",
             description="Admin Dashboard URL"
         )
 
