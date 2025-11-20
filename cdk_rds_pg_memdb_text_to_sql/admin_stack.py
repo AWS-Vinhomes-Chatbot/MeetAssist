@@ -379,6 +379,17 @@ class AdminStack(Stack):
             resources=[readonly_secret.secret_arn]
         ))
 
+
+        # THÊM PERMISSION WRITE VÀO RDS
+        admin_lambda_role.add_to_policy(iam.PolicyStatement(
+            actions=[
+                "rds-db:connect"
+            ],
+            resources=[
+                f"arn:aws:rds-db:{Stack.of(self).region}:{Stack.of(self).account}:dbuser:*/*"
+            ]
+        ))
+
         admin_manager_lambda = lambda_.Function(
             self, "AdminManager",
             function_name="AdminStack-AdminManager",
@@ -407,6 +418,9 @@ class AdminStack(Stack):
             log_retention=logs.RetentionDays.ONE_WEEK,
             environment={
                 "SECRET_NAME": readonly_secret.secret_name,
+                "RDS_HOST": rds_instance.db_instance_endpoint_address, 
+                "RDS_PORT": str(rds_instance.db_instance_endpoint_port),  
+                "RDS_DATABASE": "postgres",
             }
         )
         
@@ -441,16 +455,16 @@ class AdminStack(Stack):
         
         admin_resource = admin_api.root.add_resource("admin")
         
-        # Endpoint: POST /admin/query (AdminManager)
-        query_resource = admin_resource.add_resource("query")
-        query_resource.add_method(
+        #  ENDPOINT 1: POST /admin/execute-sql (AdminManager - INSERT vào RDS)
+        sql_execute_resource = admin_resource.add_resource("execute-sql")
+        sql_execute_resource.add_method(
             "POST",
             apigw.LambdaIntegration(admin_manager_lambda),
             authorization_type=apigw.AuthorizationType.COGNITO,
             authorizer=authorizer
         )
         
-        # Endpoint: POST /admin/analytics (AnalyticHandler)
+        #  ENDPOINT 2: POST /admin/analytics (AnalyticHandler - Query Athena)
         analytics_resource = admin_resource.add_resource("analytics")
         analytics_resource.add_method(
             "POST",
@@ -458,7 +472,6 @@ class AdminStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
             authorizer=authorizer
         )
-
         # ==================== OUTPUTS ====================
         CfnOutput(
             self, "AdminDashboardURL",
