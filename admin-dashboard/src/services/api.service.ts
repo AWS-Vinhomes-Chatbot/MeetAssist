@@ -1,12 +1,12 @@
 import { authService } from './auth.service';
-import { awsConfig } from '@/aws-exports';
-import type { ApiResponse } from '@/types';
+import { config } from '../aws-exports';
+import type { ApiResponse } from '../types';
 
 class ApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = awsConfig.api.endpoint;
+    this.baseUrl = config.api.endpoint;
   }
 
   /**
@@ -18,11 +18,13 @@ class ApiService {
   ): Promise<ApiResponse<T>> {
     try {
       // Get auth token
-      const tokens = await authService.getTokens();
+      const idToken = authService.getIdToken();
       
       // Prepare headers
       const headers = new Headers(options.headers);
-      headers.set('Authorization', `Bearer ${tokens.idToken}`);
+      if (idToken) {
+        headers.set('Authorization', `Bearer ${idToken}`);
+      }
       headers.set('Content-Type', 'application/json');
 
       // Make request

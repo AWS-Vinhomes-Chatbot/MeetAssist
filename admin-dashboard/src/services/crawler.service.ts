@@ -1,13 +1,13 @@
 import { apiService } from './api.service';
-import { awsConfig } from '@/aws-exports';
-import type { CrawlerStatus, ApiResponse } from '@/types';
+import { config } from '../aws-exports';
+import type { CrawlerStatus, ApiResponse } from '../types';
 
 class CrawlerService {
   /**
    * Trigger Glue Crawler
    */
   async startCrawler(): Promise<ApiResponse<{ message: string }>> {
-    return apiService.post<{ message: string }>(awsConfig.api.crawlerPath, {
+    return apiService.post<{ message: string }>(config.api.crawlerPath, {
       action: 'start_crawler',
     });
   }
@@ -16,7 +16,7 @@ class CrawlerService {
    * Get crawler status
    */
   async getCrawlerStatus(): Promise<ApiResponse<CrawlerStatus>> {
-    return apiService.post<CrawlerStatus>(awsConfig.api.crawlerPath, {
+    return apiService.post<CrawlerStatus>(config.api.crawlerPath, {
       action: 'get_status',
     });
   }

@@ -1,19 +1,19 @@
 import { apiService } from './api.service';
-import { awsConfig } from '@/aws-exports';
+import { config } from '../aws-exports';
 import type {
   AnalyticsMetrics,
   DailyAnalytics,
   TopQuery,
   OverviewStats,
   ApiResponse,
-} from '@/types';
+} from '../types';
 
 class AnalyticsService {
   /**
    * Get overview statistics
    */
   async getOverviewStats(): Promise<ApiResponse<OverviewStats>> {
-    return apiService.post<OverviewStats>(awsConfig.api.adminPath, {
+    return apiService.post<OverviewStats>(config.api.adminPath, {
       action: 'overview_stats',
     });
   }
@@ -25,7 +25,7 @@ class AnalyticsService {
     startDate: string,
     endDate: string
   ): Promise<ApiResponse<AnalyticsMetrics>> {
-    return apiService.post<AnalyticsMetrics>(awsConfig.api.adminPath, {
+    return apiService.post<AnalyticsMetrics>(config.api.adminPath, {
       action: 'analytics',
       start_date: startDate,
       end_date: endDate,
@@ -39,7 +39,7 @@ class AnalyticsService {
     startDate: string,
     endDate: string
   ): Promise<ApiResponse<DailyAnalytics[]>> {
-    return apiService.post<DailyAnalytics[]>(awsConfig.api.adminPath, {
+    return apiService.post<DailyAnalytics[]>(config.api.adminPath, {
       action: 'daily_analytics',
       start_date: startDate,
       end_date: endDate,
@@ -54,7 +54,7 @@ class AnalyticsService {
     endDate: string,
     limit: number = 10
   ): Promise<ApiResponse<TopQuery[]>> {
-    return apiService.post<TopQuery[]>(awsConfig.api.adminPath, {
+    return apiService.post<TopQuery[]>(config.api.adminPath, {
       action: 'top_queries',
       start_date: startDate,
       end_date: endDate,

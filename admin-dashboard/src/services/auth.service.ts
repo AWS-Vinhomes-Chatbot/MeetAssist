@@ -107,6 +107,11 @@ class AuthService {
     return tokens?.accessToken || null;
   }
 
+  getIdToken(): string | null {
+    const tokens = this.getTokens();
+    return tokens?.idToken || null;
+  }
+
   private getTokens(): AuthTokens | null {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return null;

@@ -1,6 +1,6 @@
 import { apiService } from './api.service';
-import { awsConfig } from '@/aws-exports';
-import type { Conversation, ConversationFilters, ApiResponse } from '@/types';
+import { config } from '../aws-exports';
+import type { Conversation, ConversationFilters, ApiResponse } from '../types';
 
 class ConversationService {
   /**
@@ -9,7 +9,7 @@ class ConversationService {
   async queryConversations(
     filters: ConversationFilters
   ): Promise<ApiResponse<Conversation[]>> {
-    return apiService.post<Conversation[]>(awsConfig.api.adminPath, {
+    return apiService.post<Conversation[]>(config.api.adminPath, {
       action: 'query_conversations',
       filters: {
         start_date: filters.startDate,
@@ -26,7 +26,7 @@ class ConversationService {
   async getConversationById(
     conversationId: string
   ): Promise<ApiResponse<Conversation>> {
-    return apiService.post<Conversation>(awsConfig.api.adminPath, {
+    return apiService.post<Conversation>(config.api.adminPath, {
       action: 'get_conversation',
       conversation_id: conversationId,
     });

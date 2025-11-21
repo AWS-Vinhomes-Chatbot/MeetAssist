@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { authService } from './services/auth.service';
 import { Sidebar } from './components/Sidebar';
-import { awsConfig, validateConfig } from './aws-exports';
+import { config, validateConfig } from './aws-exports';
 
 // Lazy load pages
 const OverviewPage = React.lazy(() => import('./pages/OverviewPage'));
@@ -25,16 +25,14 @@ function App() {
 
     // Handle OAuth callback
     const handleCallback = async () => {
-      const handled = await authService.handleOAuthCallback();
-      if (handled) {
-        await checkAuth();
-      }
+      await authService.handleCallback();
+      await checkAuth();
     };
     handleCallback();
   }, []);
 
   const checkAuth = async () => {
-    if (awsConfig.app.demoMode) {
+    if (config.demoMode) {
       // Demo mode - skip authentication
       setIsAuthenticated(true);
       setUserEmail('demo@admin.com');
@@ -42,12 +40,14 @@ function App() {
     }
 
     try {
-      const authenticated = await authService.isAuthenticated();
+      const authenticated = authService.isAuthenticated();
       setIsAuthenticated(authenticated);
 
       if (authenticated) {
-        const user = await authService.getUserInfo();
-        setUserEmail(user.email);
+        const user = authService.getCurrentUser();
+        if (user) {
+          setUserEmail(user.email);
+        }
       }
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -56,21 +56,20 @@ function App() {
   };
 
   const handleLogin = () => {
-    if (awsConfig.app.demoMode) {
+    if (config.demoMode) {
       setIsAuthenticated(true);
       setUserEmail('demo@admin.com');
     } else {
-      authService.signInWithOAuth();
+      authService.login();
     }
   };
 
   const handleLogout = async () => {
-    if (awsConfig.app.demoMode) {
+    if (config.demoMode) {
       setIsAuthenticated(false);
       setUserEmail('');
     } else {
-      await authService.signOut();
-      authService.signOutGlobal();
+      await authService.logout();
     }
   };
 
@@ -91,13 +90,13 @@ function App() {
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
         <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
-          {awsConfig.app.demoMode && (
+          {config.demoMode && (
             <div className="mb-4 rounded-lg bg-orange-100 p-3 text-center text-sm font-medium text-orange-800">
               ⚠️ DEMO MODE - No authentication required
             </div>
           )}
           
-          {!configValid && !awsConfig.app.demoMode && (
+          {!configValid && !config.demoMode && (
             <div className="mb-4 rounded-lg bg-red-100 p-3 text-center text-sm font-medium text-red-800">
               ⚠️ Missing AWS configuration. Please set environment variables.
             </div>
@@ -113,7 +112,7 @@ function App() {
             className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             <span className="mr-2">🔐</span>
-            {awsConfig.app.demoMode ? 'Enter Demo Mode' : 'Login with Cognito'}
+            {config.demoMode ? 'Enter Demo Mode' : 'Login with Cognito'}
           </button>
           
           <p className="mt-4 text-center text-sm text-gray-500">
@@ -131,7 +130,7 @@ function App() {
         <Sidebar userEmail={userEmail} onLogout={handleLogout} />
         
         <main className="flex-1 overflow-auto">
-          {awsConfig.app.demoMode && (
+          {config.demoMode && (
             <div className="bg-gradient-to-r from-orange-500 to-red-500 p-2 text-center text-sm font-semibold text-white">
               ⚠️ DEMO MODE - All data is mocked for demonstration purposes
             </div>
