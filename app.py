@@ -21,6 +21,7 @@
 import aws_cdk as cdk
 
 from cdk_rds_pg_memdb_text_to_sql.admin_stack import AdminStack
+from cdk_rds_pg_memdb_text_to_sql.admin_backend_stack import AdminBackendStack
 # from cdk_rds_pg_memdb_text_to_sql.app_stack import AppStack
 # from cdk_rds_pg_memdb_text_to_sql.database_init_stack import DatabaseInitStack
 # from cdk_rds_pg_memdb_text_to_sql.data_indexer_stack import DataIndexerStack
@@ -30,11 +31,30 @@ app = cdk.App()
 
 env = cdk.Environment(region="ap-southeast-1")
 
-# Chỉ deploy AdminStack để test frontend + Cognito
+# ==================== ADMIN FRONTEND STACK ====================
+# Deploy AdminStack để có frontend + Cognito
 admin_stack = AdminStack(app, "AdminStack", env=env)
 
-# Comment tạm các stack khác
+# ==================== ADMIN BACKEND STACK (OPTIONAL) ====================
+# Uncomment để deploy Lambda + API Gateway + EventBridge
+# Cần AppStack để có VPC, RDS, secrets
+# 
 # app_stack = AppStack(app, "AppStack", env=env)
+# 
+# admin_backend_stack = AdminBackendStack(
+#     app, "AdminBackendStack",
+#     vpc=app_stack.vpc,
+#     security_group=app_stack.security_group,
+#     history_data_bucket=app_stack.history_data_bucket,
+#     readonly_secret=app_stack.readonly_secret,
+#     rds_instance=app_stack.rds_instance,
+#     user_pool=admin_stack.user_pool,  # Lấy từ AdminStack đã deploy
+#     env=env
+# )
+# admin_backend_stack.add_dependency(admin_stack)
+# admin_backend_stack.add_dependency(app_stack)
+
+# Comment tạm các stack khác
 # db_init_stack = DatabaseInitStack(app, "DatabaseInitStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
 #                                   security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret, env=env)
 # data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,

@@ -233,6 +233,9 @@ class AdminStack(Stack):
             description="AWS Region"
         )
 
+        # ==================== EXPOSE PROPERTIES ====================
+        self.user_pool = user_pool
+
         # ==================== COMMENT TẠM - CẦN VPC/RDS ====================
         # Các phần này cần AppStack (VPC, RDS, S3 history bucket, secrets)
         # Sẽ uncomment khi deploy full stack
