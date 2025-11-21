@@ -29,9 +29,6 @@ from aws_cdk import (
     RemovalPolicy
 )
 from constructs import Construct
-from aws_cdk import aws_route53 as route53
-from aws_cdk import aws_route53_targets as route53_targets
-from aws_cdk import aws_certificatemanager as acm
 
 class AdminStack(Stack):
 
@@ -47,33 +44,12 @@ class AdminStack(Stack):
             **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
-
-        lambda_code_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "code"
-        )
         
         # Trỏ đến dist folder đã build sẵn
         frontend_asset_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "..", "admin-dashboard", "dist"
         )
         
-        # ==================== DOMAIN + CERTIFICATE ====================
-        # ⭐ COMMENT TẠM thời - dùng khi có domain
-        # DOMAIN_NAME = "admin.meetassist.ai"
-        # ROOT_DOMAIN = "meetassist.ai"
-        
-        # hosted_zone = route53.HostedZone.from_lookup(
-        #     self, "HostedZone", 
-        #     domain_name=ROOT_DOMAIN
-        # )
-        
-        # certificate = acm.DnsValidatedCertificate(
-        #     self, "AdminCertificate",
-        #     domain_name=DOMAIN_NAME,
-        #     hosted_zone=hosted_zone,
-        #     region="us-east-1",
-        #     validation=acm.CertificateValidation.from_dns()
-        # )
         # ==================== COGNITO USER POOL ====================
         user_pool = cognito.UserPool(
             self, "AdminUserPool",
@@ -124,9 +100,6 @@ class AdminStack(Stack):
         distribution = cloudfront.Distribution(
             self, "AdminDistribution",
             default_root_object="index.html",
-            #  BỎ domain_names và certificate khi test
-            # domain_names=[DOMAIN_NAME],
-            # certificate=certificate,
             default_behavior=cloudfront.BehaviorOptions(
                 origin=origins.S3Origin(
                     frontend_bucket,
@@ -151,16 +124,6 @@ class AdminStack(Stack):
             ]
         )
         
-        #  COMMENT tạm Route53 record
-        # route53.ARecord(
-        #     self, "AdminAliasRecord",
-        #     zone=hosted_zone,
-        #     record_name="admin",
-        #     target=route53.RecordTarget.from_alias(
-        #         route53_targets.CloudFrontTarget(distribution)
-        #     )
-        # )
-
         # ==================== COGNITO APP CLIENT ====================
         # Tạo Cognito client SAU KHI đã có CloudFront distribution
         user_pool_client = user_pool.add_client(

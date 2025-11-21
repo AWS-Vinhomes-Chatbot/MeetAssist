@@ -27,7 +27,7 @@ from cdk_rds_pg_memdb_text_to_sql.admin_stack import AdminStack
 # from cdk_nag import AwsSolutionsChecks
 
 app = cdk.App()
-# Deploy to ap-southeast-1 (Singapore) - gần Vietnam hơn
+
 env = cdk.Environment(region="ap-southeast-1")
 
 # Chỉ deploy AdminStack để test frontend + Cognito
