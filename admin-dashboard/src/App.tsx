@@ -21,12 +21,17 @@ function App() {
     const valid = validateConfig();
     setConfigValid(valid);
 
-    // Check authentication
-    checkAuth();
-
-    // Handle OAuth callback
+    // Handle OAuth callback first
     const handleCallback = async () => {
-      await authService.handleCallback();
+      if (window.location.pathname === '/callback') {
+        try {
+          await authService.handleCallback();
+        } catch (error) {
+          console.error('Callback error:', error);
+          alert('Login failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+        }
+      }
+      // Then check authentication
       await checkAuth();
     };
     handleCallback();

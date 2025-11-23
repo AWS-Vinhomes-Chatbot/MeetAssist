@@ -70,14 +70,12 @@ def handler(event: Dict[str, Any], context: Any) -> None:
                 UserPoolId=user_pool_id,
                 ClientId=client_id,
                 CallbackURLs=[
-                    f"https://{cloudfront_domain}/",
                     f"https://{cloudfront_domain}/callback",
-                    "http://localhost:3000/callback"  # Local development
+                    "http://localhost:5173/callback"  # Local development
                 ],
                 LogoutURLs=[
-                    f"https://{cloudfront_domain}/",
-                    f"https://{cloudfront_domain}/logout",
-                    "http://localhost:3000/"
+                    f"https://{cloudfront_domain}",
+                    "http://localhost:5173"
                 ],
                 AllowedOAuthFlows=['code'],
                 AllowedOAuthScopes=['openid', 'email', 'profile'],

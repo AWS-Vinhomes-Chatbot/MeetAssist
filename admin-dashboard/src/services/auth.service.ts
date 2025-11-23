@@ -43,17 +43,31 @@ class AuthService {
 
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
+    const error = urlParams.get('error');
+    const errorDescription = urlParams.get('error_description');
 
-    if (!code) {
-      throw new Error('No authorization code found');
+    // Check for error from Cognito
+    if (error) {
+      console.error('OAuth Error:', error, errorDescription);
+      throw new Error(`Authentication failed: ${errorDescription || error}`);
     }
 
-    // Exchange code for tokens
-    const tokens = await this.exchangeCodeForTokens(code);
-    this.storeTokens(tokens);
+    if (!code) {
+      // Not a callback URL, just return
+      return;
+    }
 
-    // Redirect to home
-    window.history.replaceState({}, document.title, '/');
+    try {
+      // Exchange code for tokens
+      const tokens = await this.exchangeCodeForTokens(code);
+      this.storeTokens(tokens);
+
+      // Redirect to home
+      window.history.replaceState({}, document.title, '/');
+    } catch (error) {
+      console.error('Token exchange failed:', error);
+      throw error;
+    }
   }
 
   async logout(): Promise<void> {
