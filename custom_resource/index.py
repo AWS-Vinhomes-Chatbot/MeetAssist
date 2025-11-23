@@ -55,43 +55,21 @@ def on_create(event):
         user=db_secret_dict["username"], password=db_secret_dict["password"], )
     try:
         with conn.cursor() as cur:
-            # Create a table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS us_housing_properties (
-                    property_url TEXT,
-                    property_id INTEGER PRIMARY KEY,
-                    address TEXT,
-                    street_name TEXT,
-                    apartment TEXT,
-                    city TEXT,
-                    state TEXT,
-                    latitude REAL,
-                    longitude REAL,
-                    postcode TEXT,
-                    price REAL,
-                    bedroom_number INTEGER,
-                    bathroom_number INTEGER,
-                    price_per_unit REAL,
-                    living_space REAL,
-                    land_space REAL,
-                    land_space_unit TEXT,
-                    broker_id INTEGER,
-                    property_type TEXT,
-                    property_status TEXT,
-                    year_build INTEGER,
-                    total_num_units INTEGER,
-                    listing_age INTEGER,
-                    RunDate TEXT,
-                    agency_name TEXT,
-                    agent_name TEXT,
-                    agent_phone TEXT,
-                    is_owned_by_zillow INTEGER
-                )
-              """)
-            # Enable pg_vector
+            # Read and execute Drug Prevention schema
+            schema_path = os.path.join(os.path.dirname(__file__), 'drug_prevention_schema.sql')
+            print(f"Executing schema from: {schema_path}")
+            
+            with open(schema_path, 'r', encoding='utf-8') as f:
+                schema_sql = f.read()
+            
+            # Execute the entire schema
+            cur.execute(schema_sql)
+            print("Drug Prevention schema created successfully")
+            
+            # Enable pg_vector for embeddings (optional, for future AI features)
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute("""
-                CREATE TABLE  IF NOT EXISTS embeddings (
+                CREATE TABLE IF NOT EXISTS embeddings (
                     id SERIAL PRIMARY KEY,
                     embedding VECTOR(1536),
                     database_name VARCHAR(255) NOT NULL,

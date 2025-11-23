@@ -21,7 +21,7 @@
 import aws_cdk as cdk
 
 from cdk_rds_pg_memdb_text_to_sql.admin_stack import AdminStack
-from cdk_rds_pg_memdb_text_to_sql.admin_backend_stack import AdminBackendStack
+from cdk_rds_pg_memdb_text_to_sql.dashboard_stack import DashboardStack
 # from cdk_rds_pg_memdb_text_to_sql.app_stack import AppStack
 # from cdk_rds_pg_memdb_text_to_sql.database_init_stack import DatabaseInitStack
 # from cdk_rds_pg_memdb_text_to_sql.data_indexer_stack import DataIndexerStack
@@ -41,8 +41,8 @@ admin_stack = AdminStack(app, "AdminStack", env=env)
 # 
 # app_stack = AppStack(app, "AppStack", env=env)
 # 
-# admin_backend_stack = AdminBackendStack(
-#     app, "AdminBackendStack",
+# admin_backend_stack = DashboardStack(
+#     app, "DashboardStack",
 #     vpc=app_stack.vpc,
 #     security_group=app_stack.security_group,
 #     history_data_bucket=app_stack.history_data_bucket,

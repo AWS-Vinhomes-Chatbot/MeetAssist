@@ -26,7 +26,7 @@ from aws_cdk import (
 from constructs import Construct
 
 
-class AdminBackendStack(Stack):
+class DashboardStack(Stack):
 
     def __init__(
         self,
@@ -90,7 +90,7 @@ class AdminBackendStack(Stack):
         archive_data_lambda = lambda_.Function(
             self,
             "ArchiveData",
-            function_name="AdminBackendStack-ArchiveData",
+            function_name="DashboardStack-ArchiveData",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="archive_handler.lambda_handler",
             role=archive_lambda_role,
@@ -209,7 +209,7 @@ class AdminBackendStack(Stack):
         analytic_handler_lambda = lambda_.Function(
             self,
             "AnalyticHandler",
-            function_name="AdminBackendStack-AnalyticHandler",
+            function_name="DashboardStack-AnalyticHandler",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="analytic_handler.lambda_handler",
             role=analytic_lambda_role,
@@ -254,7 +254,7 @@ class AdminBackendStack(Stack):
         admin_manager_lambda = lambda_.Function(
             self,
             "AdminManager",
-            function_name="AdminBackendStack-AdminManager",
+            function_name="DashboardStack-AdminManager",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="admin_handler.lambda_handler",
             role=admin_lambda_role,

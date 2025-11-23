@@ -90,4 +90,69 @@ class ApiService {
 }
 
 export const apiService = new ApiService();
+
+// ==================== DATABASE ADMIN FUNCTIONS ====================
+
+/**
+ * Execute raw SQL query
+ */
+export async function executeSql(sql: string): Promise<any> {
+  const response = await apiService.post('/admin', {
+    action: 'execute_sql',
+    sql
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to execute SQL');
+  }
+  
+  return response.data;
+}
+
+/**
+ * Get list of all tables
+ */
+export async function getTables(): Promise<any> {
+  const response = await apiService.post('/admin', {
+    action: 'get_tables'
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get tables');
+  }
+  
+  return response.data;
+}
+
+/**
+ * Get schema for a specific table
+ */
+export async function getTableSchema(tableName: string): Promise<any> {
+  const response = await apiService.post('/admin', {
+    action: 'get_table_schema',
+    table_name: tableName
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get table schema');
+  }
+  
+  return response.data;
+}
+
+/**
+ * Get database statistics
+ */
+export async function getDatabaseStats(): Promise<any> {
+  const response = await apiService.post('/admin', {
+    action: 'get_stats'
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get database stats');
+  }
+  
+  return response.data;
+}
+
 export default apiService;
