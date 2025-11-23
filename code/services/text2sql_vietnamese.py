@@ -330,6 +330,7 @@ class TextToSQL:
         results, column_names = results_tuple
         text_prompt = self.__generate_text_prompt(sql_statements, schema, results)
         text_content = self.__call_bedrock(text_prompt)
+        # định dạng format JSON cho dễ dùng phía client
         return {"statusCode": 200,
                 "body": {"response": text_content,
                          "query": sql_statements,

@@ -34,6 +34,7 @@ OTP_EXPIRY_SECONDS = 300  # 5 phút
 MAX_OTP_ATTEMPTS = 5  # số lần thử xác thực OTP tối đa
 OTP_REQUEST_COOLDOWN = 60  # Mỗi request OTP cách nhau tối thiểu 60 giây
 MAX_OTP_REQUESTS_PER_HOUR = 3  # trong một giờ có tối đa 3 lần yêu cầu OTP
+BLOCK_DURATION_SECONDS = 3600  # Thời gian block sau khi nhập sai OTP quá nhiều (1 giờ)
 
 session_table = dynamodb.Table(SESSION_TABLE_NAME)
 
@@ -107,7 +108,7 @@ def get_fb_credentials() -> Dict[str, str]:
         "verify_token": get_secret_value(FB_PAGE_TOKEN_SECRET_ARN, "verify_token")
     }
 
-def can_request_otp(psid: str) -> tuple[bool, str]:
+def can_request_otp(psid: str, email: str = None) -> tuple[bool, str]:
     """Check if user can request new OTP (rate limiting)."""
     try:
         session = get_user_session(psid)
@@ -115,6 +116,34 @@ def can_request_otp(psid: str) -> tuple[bool, str]:
             return True, "New user"
         
         current_time = int(time.time())
+        blocked_until = session.get("blocked_until", 0)
+        blocked_email = session.get("blocked_email", "")
+        is_authenticated = session.get("is_authenticated", False)
+        
+        # Auto-reset blocked status after 1 hour for unauthenticated users
+        if not is_authenticated and blocked_until > 0 and current_time >= blocked_until:
+            logger.info(f"Auto-resetting block for unauthenticated user {psid}")
+            session_table.update_item(
+                Key={"psid": psid},
+                UpdateExpression="SET blocked_until = :zero, blocked_email = :empty, otp_attempts = :zero",
+                ExpressionAttributeValues={
+                    ":zero": 0,
+                    ":empty": "",
+                }
+            )
+            blocked_until = 0
+            blocked_email = ""
+        
+        # Check if THIS SPECIFIC EMAIL is still blocked
+        if email and blocked_email and email.lower() == blocked_email.lower() and blocked_until > current_time:
+            remaining_time = blocked_until - current_time
+            minutes = remaining_time // 60
+            seconds = remaining_time % 60
+            if minutes > 0:
+                return False, f"Email này bị khóa do nhập sai quá nhiều lần. Vui lòng sử dụng email khác hoặc thử lại sau {minutes} phút {seconds} giây."
+            else:
+                return False, f"Email này bị khóa do nhập sai quá nhiều lần. Vui lòng sử dụng email khác hoặc thử lại sau {seconds} giây."
+        
         last_otp_request = session.get("last_otp_request", 0)
         otp_request_count = session.get("otp_request_count", 0)
         otp_request_window_start = session.get("otp_request_window_start", 0)
@@ -124,12 +153,27 @@ def can_request_otp(psid: str) -> tuple[bool, str]:
             remaining = OTP_REQUEST_COOLDOWN - (current_time - last_otp_request)
             return False, f"Vui lòng đợi {remaining} giây trước khi yêu cầu mã OTP mới."
         
-        # Reset hourly counter if window expired
-        if current_time - otp_request_window_start > 3600:
-            return True, "New window"
+        # Auto-reset OTP request counter if window expired (1 hour) for unauthenticated users
+        if not is_authenticated and current_time - otp_request_window_start > 3600:
+            logger.info(f"Auto-resetting OTP request counter for unauthenticated user {psid}")
+            session_table.update_item(
+                Key={"psid": psid},
+                UpdateExpression="SET otp_request_count = :zero, otp_request_window_start = :current_time",
+                ExpressionAttributeValues={
+                    ":zero": 0,
+                    ":current_time": current_time
+                }
+            )
+            return True, "Counter reset - new window"
         
         # Check hourly limit
         if otp_request_count >= MAX_OTP_REQUESTS_PER_HOUR:
+            if not is_authenticated:
+                # For unauthenticated users, show when counter will reset
+                remaining_time = 3600 - (current_time - otp_request_window_start)
+                if remaining_time > 0:
+                    minutes = remaining_time // 60
+                    return False, f"Bạn đã yêu cầu quá nhiều mã OTP. Vui lòng thử lại sau {minutes} phút."
             return False, "Bạn đã yêu cầu quá nhiều mã OTP. Vui lòng thử lại sau 1 giờ."
         
         return True, "OK"
@@ -152,7 +196,10 @@ def store_otp(psid: str, email: str, otp: str) -> bool:
             # Increment request counter within same window
             if timestamp - session.get("otp_request_window_start", 0) <= 3600:
                 otp_request_count = session.get("otp_request_count", 0) + 1
-                otp_request_window_start = session.get("otp_request_window_start", timestamp)
+                otp_request_window_start = session.get("otp_request_window_start", 0)  # Preserve original window start
+                # Nếu không có window start (trường hợp đầu tiên), dùng timestamp hiện tại
+                if otp_request_window_start == 0:
+                    otp_request_window_start = timestamp
         
         session_table.put_item(
             Item={
@@ -189,7 +236,7 @@ def verify_otp(psid: str, input_otp: str) -> Optional[str]:
         otp_used = session.get("otp_used", False)
         
         if not stored_otp or not otp_expiry:
-            return None
+            return None # thường đã có ở bước generate_otp
         
         # Check if OTP already used (prevent replay attack)
         if otp_used:
@@ -211,19 +258,9 @@ def verify_otp(psid: str, input_otp: str) -> Optional[str]:
             )
             return None
         
-        # Check attempt limit (brute force protection)
+        # Check attempt limit (brute force protection) - should not happen if properly handled below
         if otp_attempts >= MAX_OTP_ATTEMPTS:
-            logger.warning(f"Max OTP attempts exceeded for {psid}")
-            # Invalidate OTP after max attempts
-            session_table.update_item(
-                Key={"psid": psid},
-                UpdateExpression="SET otp = :null, otp_expiry = :zero, auth_state = :blocked",
-                ExpressionAttributeValues={
-                    ":null": "",
-                    ":zero": 0,
-                    ":blocked": "blocked"
-                }
-            )
+            logger.warning(f"Max OTP attempts already exceeded for {psid} - should be in awaiting_email state")
             return None
         
         # Use constant-time comparison to prevent timing attacks
@@ -247,14 +284,36 @@ def verify_otp(psid: str, input_otp: str) -> Optional[str]:
             return email
         else:
             # Increment failed attempt counter
-            session_table.update_item(
-                Key={"psid": psid},
-                UpdateExpression="SET otp_attempts = otp_attempts + :inc",
-                ExpressionAttributeValues={
-                    ":inc": 1
-                }
-            )
-            remaining_attempts = MAX_OTP_ATTEMPTS - (otp_attempts + 1)
+            new_attempts = otp_attempts + 1
+            
+            # Check if this is the last attempt
+            if new_attempts >= MAX_OTP_ATTEMPTS:
+                # Block this email after final failed attempt
+                blocked_until = current_time + BLOCK_DURATION_SECONDS
+                session_table.update_item(
+                    Key={"psid": psid},
+                    UpdateExpression="SET otp_attempts = :attempts, otp = :null, otp_expiry = :zero, blocked_until = :blocked_until, blocked_email = :blocked_email, auth_state = :awaiting_email",
+                    ExpressionAttributeValues={
+                        ":attempts": new_attempts,
+                        ":null": "",
+                        ":zero": 0,
+                        ":blocked_until": blocked_until,
+                        ":blocked_email": email,
+                        ":awaiting_email": "awaiting_email"
+                    }
+                )
+                logger.info(f"Email {email} blocked for user {psid} after {new_attempts} failed attempts until {blocked_until} (Unix timestamp)")
+            else:
+                # Just increment counter
+                session_table.update_item(
+                    Key={"psid": psid},
+                    UpdateExpression="SET otp_attempts = :attempts",
+                    ExpressionAttributeValues={
+                        ":attempts": new_attempts
+                    }
+                )
+            
+            remaining_attempts = MAX_OTP_ATTEMPTS - new_attempts
             logger.warning(f"Invalid OTP attempt for {psid}. Remaining: {remaining_attempts}")
             return None
     except Exception as e:
@@ -288,15 +347,21 @@ def get_user_session(psid: str) -> Optional[Dict[str, Any]]:
 def create_or_update_session(psid: str, user_data: Dict[str, Any]) -> bool:
     try:
         timestamp = int(time.time())
-        item = {
-            "psid": psid,
-            "email": user_data.get("email"),
-            "name": user_data.get("name", user_data.get("email", "User")),
-            "updated_at": timestamp,
-            "is_authenticated": user_data.get("is_authenticated", True),
-            "auth_state": "authenticated"
-        }
-        session_table.put_item(Item=item)
+        # Use update_item to preserve OTP rate limiting fields
+        session_table.update_item(
+            Key={"psid": psid},
+            UpdateExpression="SET email = :email, #name = :name, updated_at = :updated_at, is_authenticated = :is_authenticated, auth_state = :auth_state",
+            ExpressionAttributeNames={
+                "#name": "name"  # 'name' is a reserved keyword in DynamoDB
+            },
+            ExpressionAttributeValues={
+                ":email": user_data.get("email"),
+                ":name": user_data.get("name", user_data.get("email", "User")),
+                ":updated_at": timestamp,
+                ":is_authenticated": user_data.get("is_authenticated", True),
+                ":auth_state": "authenticated"
+            }
+        )
         return True
     except ClientError as e:
         logger.error(f"DB Error: {e}")
@@ -388,27 +453,27 @@ def handle_messenger_event(event: Dict[str, Any]) -> Dict[str, Any]:
                         if auth_state == "awaiting_otp":
                             # User is entering OTP
                             if message_text.isdigit() and len(message_text) == 6:
-                                # Check if account is blocked
-                                remaining = get_remaining_attempts(psid)
-                                if remaining == 0:
-                                    send_messenger_message(psid, "🔒 Tài khoản của bạn đã bị khóa do nhập sai mã OTP quá nhiều lần. Vui lòng nhập email để nhận mã mới.")
+                                email = verify_otp(psid, message_text) #check limit attempts và otp expiry 
+                                if email:
+                                    # OTP valid - authenticate user
+                                    create_or_update_session(psid, {
+                                        "email": email,
+                                        "name": email.split('@')[0],
+                                        "is_authenticated": True
+                                    })
+                                    send_messenger_message(psid, f"✅ Xác thực thành công! Xin chào {email}")
+                                    send_messenger_message(psid, "Bạn có thể bắt đầu chat với bot.")
                                 else:
-                                    email = verify_otp(psid, message_text)
-                                    if email:
-                                        # OTP valid - authenticate user
-                                        create_or_update_session(psid, {
-                                            "email": email,
-                                            "name": email.split('@')[0],
-                                            "is_authenticated": True
-                                        })
-                                        send_messenger_message(psid, f"✅ Xác thực thành công! Xin chào {email}")
-                                        send_messenger_message(psid, "Bạn có thể bắt đầu chat với bot.")
+                                    # Refresh session sau khi verify_otp để lấy state mới nhất
+                                    session = get_user_session(psid)
+                                    auth_state = session.get("auth_state") if session else None  # Update auth_state
+                                    remaining = get_remaining_attempts(psid)
+                                    if remaining > 0:
+                                        send_messenger_message(psid, f"❌ Mã OTP không hợp lệ. Còn {remaining} lần thử.")
                                     else:
-                                        remaining = get_remaining_attempts(psid)
-                                        if remaining > 0:
-                                            send_messenger_message(psid, f"❌ Mã OTP không hợp lệ. Còn {remaining} lần thử.")
-                                        else:
-                                            send_messenger_message(psid, "🔒 Mã OTP đã bị khóa do nhập sai quá nhiều lần. Vui lòng nhập email để nhận mã mới.")
+                                        # verify_otp đã chuyển auth_state sang awaiting_email
+                                        # auth_state đã được update ở trên, message tiếp theo sẽ vào đúng block awaiting_email
+                                        send_messenger_message(psid, "🔒 Email hiện tại đã bị khóa do nhập sai quá nhiều lần.\n\n✅ Bạn có thể sử dụng email khác. Vui lòng nhập địa chỉ email mới:")
                             else:
                                 send_messenger_message(psid, "Vui lòng nhập mã OTP 6 chữ số đã được gửi tới email của bạn.")
                         
@@ -416,8 +481,8 @@ def handle_messenger_event(event: Dict[str, Any]) -> Dict[str, Any]:
                         elif auth_state == "awaiting_email":
                             # User is entering email
                             if is_valid_email(message_text):
-                                # Check rate limiting
-                                can_request, reason = can_request_otp(psid)
+                                # Check rate limiting and block status
+                                can_request, reason = can_request_otp(psid, message_text)
                                 if not can_request:
                                     send_messenger_message(psid, f"⚠️ {reason}")
                                 else:
