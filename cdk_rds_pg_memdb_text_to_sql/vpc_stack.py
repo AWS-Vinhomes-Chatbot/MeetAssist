@@ -80,9 +80,10 @@ class AppStack(Stack):
                                             engine=rds.DatabaseInstanceEngine.postgres(
                                                 version=rds.PostgresEngineVersion.VER_16),
                                             instance_type=ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3,
-                                                                              ec2.InstanceSize.SMALL),
+                                                                              ec2.InstanceSize.MICRO),  # Đổi từ SMALL sang MICRO
                                             vpc=self.vpc,
                                             storage_encrypted=True,
+                                            allocated_storage=20,  # Limit storage 20GB
                                             vpc_subnets=ec2.SubnetSelection(
                                                 subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
                                             ),

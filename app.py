@@ -22,8 +22,8 @@ import aws_cdk as cdk
 
 from cdk_rds_pg_memdb_text_to_sql.admin_stack import AdminStack
 from cdk_rds_pg_memdb_text_to_sql.dashboard_stack import DashboardStack
-# from cdk_rds_pg_memdb_text_to_sql.app_stack import AppStack
-# from cdk_rds_pg_memdb_text_to_sql.database_init_stack import DatabaseInitStack
+from cdk_rds_pg_memdb_text_to_sql.vpc_stack import AppStack
+from cdk_rds_pg_memdb_text_to_sql.database_init_stack import DatabaseInitStack
 # from cdk_rds_pg_memdb_text_to_sql.data_indexer_stack import DataIndexerStack
 # from cdk_nag import AwsSolutionsChecks
 
@@ -35,28 +35,39 @@ env = cdk.Environment(region="ap-southeast-1")
 # Deploy AdminStack để có frontend + Cognito
 admin_stack = AdminStack(app, "AdminStack", env=env)
 
-# ==================== ADMIN BACKEND STACK (OPTIONAL) ====================
-# Uncomment để deploy Lambda + API Gateway + EventBridge
-# Cần AppStack để có VPC, RDS, secrets
-# 
-# app_stack = AppStack(app, "AppStack", env=env)
-# 
-# admin_backend_stack = DashboardStack(
-#     app, "DashboardStack",
-#     vpc=app_stack.vpc,
-#     security_group=app_stack.security_group,
-#     history_data_bucket=app_stack.history_data_bucket,
-#     readonly_secret=app_stack.readonly_secret,
-#     rds_instance=app_stack.rds_instance,
-#     user_pool=admin_stack.user_pool,  # Lấy từ AdminStack đã deploy
-#     env=env
-# )
-# admin_backend_stack.add_dependency(admin_stack)
-# admin_backend_stack.add_dependency(app_stack)
+# ==================== VPC + RDS STACK ====================
+vpc_stack = AppStack(app, "AppStack", env=env)
+
+# ==================== DATABASE INIT STACK ====================
+# CHỈ CẦN DEPLOY 1 LẦN ĐẦU TIÊN để tạo schema từ drug_prevention_schema.sql
+# Nếu RDS đã có schema rồi → comment lại để tránh conflict
+db_init_stack = DatabaseInitStack(
+    app, "DatabaseInitStack",
+    db_instance=vpc_stack.rds_instance,
+    vpc=vpc_stack.vpc,
+    security_group=vpc_stack.security_group,
+    readonly_secret=vpc_stack.readonly_secret,
+    env=env
+)
+db_init_stack.add_dependency(vpc_stack)
+
+# ==================== ADMIN BACKEND STACK ====================
+# Deploy Lambda AdminManager + API Gateway
+dashboard_stack = DashboardStack(
+    app, "DashboardStack",
+    vpc=vpc_stack.vpc,
+    security_group=vpc_stack.security_group,
+    history_data_bucket=vpc_stack.history_data_bucket,
+    readonly_secret=vpc_stack.readonly_secret,
+    rds_instance=vpc_stack.rds_instance,
+    user_pool=admin_stack.user_pool,
+    env=env
+)
+dashboard_stack.add_dependency(admin_stack)
+dashboard_stack.add_dependency(vpc_stack)
+dashboard_stack.add_dependency(db_init_stack)
 
 # Comment tạm các stack khác
-# db_init_stack = DatabaseInitStack(app, "DatabaseInitStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
-#                                   security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret, env=env)
 # data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
 #                                       security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret,env=env)
 # cdk.Aspects.of(app).add(AwsSolutionsChecks(verbose=True))
