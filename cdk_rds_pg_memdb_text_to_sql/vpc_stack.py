@@ -57,7 +57,7 @@ class AppStack(Stack):
 
         vpc = ec2.Vpc(
             self, "AppVPC",
-            max_azs=1, # Giới hạn 1 AZ để tiết kiệm chi phí cho ví dụ này
+            max_azs=2, # Giới hạn 1 AZ để tiết kiệm chi phí cho ví dụ này
             subnet_configuration=[
                 ec2.SubnetConfiguration(
                     name="PrivateIsolated", subnet_type=ec2.SubnetType.PRIVATE_ISOLATED, cidr_mask=24
@@ -73,7 +73,7 @@ class AppStack(Stack):
         # self.claude_secret = claude_secret
 
         self.vpc.add_flow_log("FlowLog")
-        self.subnet = self.vpc.private_subnets[0]
+        self.subnet = self.vpc.isolated_subnets[0]  # Sửa từ private_subnets sang isolated_subnets
 
         # Create a PostgreSQL DB Instance
         rds_instance = rds.DatabaseInstance(self, "AppDatabaseInstance",
@@ -118,13 +118,22 @@ class AppStack(Stack):
         
         database_sg = ec2.SecurityGroup(
             self, "DatabaseSecurityGroup",
-            vpc=self.vpc
+            vpc=self.vpc,
+            description="Security group for Lambda, RDS and VPC Endpoints"
         )
-        # tạo rule cho phép traffic từ chính security group này
+        
+        # Rule 1: Cho phép traffic PostgreSQL từ chính security group này (Lambda -> RDS)
         database_sg.add_ingress_rule(
             database_sg,
             ec2.Port.tcp(5432),
             "Allow PostgreSQL traffic within the security group"
+        )
+        
+        # Rule 2: Cho phép traffic HTTPS từ chính security group này (Lambda -> Secrets Manager/Bedrock Endpoints)
+        database_sg.add_ingress_rule(
+            database_sg,
+            ec2.Port.tcp(443),
+            "Allow HTTPS traffic for VPC Endpoints (Secrets Manager)"
         )
         
         self.security_group = database_sg
@@ -150,13 +159,13 @@ class AppStack(Stack):
             self, "DynamoDBEndpoint",
             vpc=vpc,
             service=ec2.GatewayVpcEndpointAwsService.DYNAMODB,
-            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),           
+            subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)],          
         )
         s3_endpoint = ec2.GatewayVpcEndpoint(  # Sử dụng Gateway cho S3 để tiết kiệm chi phí
             self, "S3Endpoint",
             vpc=vpc,
             service=ec2.GatewayVpcEndpointAwsService.S3,
-            subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)]
+            subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)] 
         )
 
 
@@ -181,17 +190,18 @@ class AppStack(Stack):
             service=ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
             subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
             private_dns_enabled=True,
-            security_groups=[database_sg]
+            security_groups=[database_sg]  # Dùng chung SG với Lambda, rule port 443 đã được thêm ở trên
         )
 
-        bedrock_endpoint = ec2.InterfaceVpcEndpoint(
-        self, "BedrockRuntimeEndpoint",
-        vpc=vpc,
-        service=ec2.InterfaceVpcEndpointAwsService.BEDROCK_RUNTIME,
-        subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
-        private_dns_enabled=True,
-        security_groups=[database_sg]
-        )
+        # Bedrock endpoint - COMMENT vì chưa sử dụng
+        # bedrock_endpoint = ec2.InterfaceVpcEndpoint(
+        #     self, "BedrockRuntimeEndpoint",
+        #     vpc=vpc,
+        #     service=ec2.InterfaceVpcEndpointAwsService.BEDROCK_RUNTIME,
+        #     subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
+        #     private_dns_enabled=True,
+        #     security_groups=[database_sg]
+        # )
 
 
         

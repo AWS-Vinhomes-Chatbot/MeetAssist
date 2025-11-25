@@ -34,17 +34,28 @@ class ApiService {
       });
 
       // Parse response
-      const data = await response.json();
+      let data = await response.json();
+      
+      console.log('Raw API response:', data);
+      
+      // Handle API Gateway string body format
+      if (typeof data.body === 'string') {
+        console.log('Parsing body string...');
+        data = JSON.parse(data.body);
+        console.log('Parsed data:', data);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || data.message || 'API request failed');
       }
 
-      return {
+      const result = {
         success: true,
-        data: data.data || data,
-        message: data.message,
+        ...data, // ← Spread tất cả fields từ data gốc (message, rows_returned, rows_affected, v.v.)
       };
+      
+      console.log('Final result:', result);
+      return result;
     } catch (error) {
       console.error('API request error:', error);
       return {
@@ -97,7 +108,7 @@ export const apiService = new ApiService();
  * Execute raw SQL query
  */
 export async function executeSql(sql: string): Promise<any> {
-  const response = await apiService.post('/admin', {
+  const response = await apiService.post('/admin/execute-sql', {
     action: 'execute_sql',
     sql
   });
@@ -106,14 +117,14 @@ export async function executeSql(sql: string): Promise<any> {
     throw new Error(response.error || 'Failed to execute SQL');
   }
   
-  return response.data;
+  return response;
 }
 
 /**
  * Get list of all tables
  */
 export async function getTables(): Promise<any> {
-  const response = await apiService.post('/admin', {
+  const response = await apiService.post('/admin/execute-sql', {
     action: 'get_tables'
   });
   
@@ -121,14 +132,14 @@ export async function getTables(): Promise<any> {
     throw new Error(response.error || 'Failed to get tables');
   }
   
-  return response.data;
+  return response;
 }
 
 /**
  * Get schema for a specific table
  */
 export async function getTableSchema(tableName: string): Promise<any> {
-  const response = await apiService.post('/admin', {
+  const response = await apiService.post('/admin/execute-sql', {
     action: 'get_table_schema',
     table_name: tableName
   });
@@ -137,14 +148,14 @@ export async function getTableSchema(tableName: string): Promise<any> {
     throw new Error(response.error || 'Failed to get table schema');
   }
   
-  return response.data;
+  return response;
 }
 
 /**
  * Get database statistics
  */
 export async function getDatabaseStats(): Promise<any> {
-  const response = await apiService.post('/admin', {
+  const response = await apiService.post('/admin/execute-sql', {
     action: 'get_stats'
   });
   
@@ -152,7 +163,7 @@ export async function getDatabaseStats(): Promise<any> {
     throw new Error(response.error || 'Failed to get database stats');
   }
   
-  return response.data;
+  return response;
 }
 
 export default apiService;

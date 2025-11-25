@@ -103,7 +103,7 @@ class DashboardStack(Stack):
         #                 "-c",
         #                 "pip install --platform manylinux2014_x86_64 --target /asset-output "
         #                 + "--implementation cp --python-version 3.12 --only-binary=:all: "
-        #                 + "--upgrade -r requirements.txt && cp -au . /asset-output",
+        #                 + "--upgrade -r requirements.txt && cp -r . /asset-output",
         #             ],
         #         ),
         #     ),
@@ -238,7 +238,7 @@ class DashboardStack(Stack):
         admin_lambda_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
-                resources=[readonly_secret.secret_arn],
+                resources=[rds_instance.secret.secret_arn],
             )
         )
 
@@ -267,7 +267,7 @@ class DashboardStack(Stack):
                         "-c",
                         "pip install --platform manylinux2014_x86_64 --target /asset-output "
                         + "--implementation cp --python-version 3.12 --only-binary=:all: "
-                        + "--upgrade -r requirements.txt && cp -au . /asset-output",
+                        + "--upgrade -r requirements.txt && cp -r . /asset-output",
                     ],
                 ),
             ),
@@ -278,7 +278,7 @@ class DashboardStack(Stack):
             timeout=Duration.minutes(5),
             log_retention=logs.RetentionDays.ONE_WEEK,
             environment={
-                "SECRET_NAME": readonly_secret.secret_name,
+                "SECRET_NAME": rds_instance.secret.secret_name,
                 "RDS_HOST": rds_instance.db_instance_endpoint_address,
                 "RDS_PORT": str(rds_instance.db_instance_endpoint_port),
                 "RDS_DATABASE": "postgres",
@@ -306,7 +306,8 @@ class DashboardStack(Stack):
             deploy_options=apigw.StageOptions(
                 throttling_rate_limit=100,
                 throttling_burst_limit=200,
-                logging_level=apigw.MethodLoggingLevel.INFO,
+                # Tắt logging để tránh lỗi CloudWatch Logs role
+                # logging_level=apigw.MethodLoggingLevel.INFO,
             ),
         )
 

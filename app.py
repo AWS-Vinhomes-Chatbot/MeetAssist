@@ -51,7 +51,7 @@ db_init_stack = DatabaseInitStack(
 )
 db_init_stack.add_dependency(vpc_stack)
 
-# ==================== ADMIN BACKEND STACK ====================
+# ==================== Dashboard Stack ====================
 # Deploy Lambda AdminManager + API Gateway
 dashboard_stack = DashboardStack(
     app, "DashboardStack",
