@@ -39,7 +39,7 @@ admin_stack = AdminStack(app, "AdminStack", env=env)
 vpc_stack = AppStack(app, "AppStack", env=env)
 
 # ==================== DATABASE INIT STACK ====================
-# CHỈ CẦN DEPLOY 1 LẦN ĐẦU TIÊN để tạo schema từ drug_prevention_schema.sql
+# CHỈ CẦN DEPLOY 1 LẦN ĐẦU TIÊN để tạo schema từ career_couseling_schema.sql
 # Nếu RDS đã có schema rồi → comment lại để tránh conflict
 db_init_stack = DatabaseInitStack(
     app, "DatabaseInitStack",

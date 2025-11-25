@@ -56,7 +56,7 @@ def on_create(event):
     try:
         with conn.cursor() as cur:
             # Read and execute Drug Prevention schema
-            schema_path = os.path.join(os.path.dirname(__file__), 'drug_prevention_schema.sql')
+            schema_path = os.path.join(os.path.dirname(__file__), 'career_couseling_schema.sql')
             print(f"Executing schema from: {schema_path}")
             
             with open(schema_path, 'r', encoding='utf-8') as f:
