@@ -256,7 +256,7 @@ class DashboardStack(Stack):
             "AdminManager",
             function_name="DashboardStack-AdminManager",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="admin_handler.lambda_handler",
+            handler="dashboard_handler.lambda_handler",
             role=admin_lambda_role,
             code=lambda_.Code.from_asset(
                 lambda_code_path,
