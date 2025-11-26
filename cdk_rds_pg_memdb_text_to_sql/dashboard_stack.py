@@ -40,7 +40,7 @@ class DashboardStack(Stack):
         user_pool: cognito.IUserPool,
         **kwargs,
     ) -> None:
-        super().__init__(scope, construct_id, **kwargs)
+        super().__init__(scope, construct_id, description="Admin Dashboard for managing career counseling data", **kwargs)
 
         lambda_code_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "..", "code"

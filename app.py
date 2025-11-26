@@ -20,7 +20,7 @@
 
 import aws_cdk as cdk
 
-from cdk_rds_pg_memdb_text_to_sql.admin_stack import AdminStack
+from cdk_rds_pg_memdb_text_to_sql.frontend_stack import FrontendStack
 from cdk_rds_pg_memdb_text_to_sql.dashboard_stack import DashboardStack
 from cdk_rds_pg_memdb_text_to_sql.vpc_stack import AppStack
 from cdk_rds_pg_memdb_text_to_sql.database_init_stack import DatabaseInitStack
@@ -31,9 +31,9 @@ app = cdk.App()
 
 env = cdk.Environment(region="ap-southeast-1")
 
-# ==================== ADMIN FRONTEND STACK ====================
-# Deploy AdminStack để có frontend + Cognito
-admin_stack = AdminStack(app, "AdminStack", env=env)
+# ==================== FRONTEND STACK ====================
+# Deploy FrontendStack để có frontend + Cognito
+frontend_stack = FrontendStack(app, "FrontendStack", env=env)
 
 # ==================== VPC + RDS STACK ====================
 vpc_stack = AppStack(app, "AppStack", env=env)
@@ -61,10 +61,10 @@ dashboard_stack = DashboardStack(
     data_stored_bucket=vpc_stack.data_stored_bucket,
     readonly_secret=vpc_stack.readonly_secret,
     rds_instance=vpc_stack.rds_instance,
-    user_pool=admin_stack.user_pool,
+    user_pool=frontend_stack.user_pool,
     env=env
 )
-dashboard_stack.add_dependency(admin_stack)
+dashboard_stack.add_dependency(frontend_stack)
 dashboard_stack.add_dependency(db_init_stack) 
 
 # Comment tạm các stack khác

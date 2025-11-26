@@ -30,7 +30,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-class AdminStack(Stack):
+class FrontendStack(Stack):
 
     def __init__(
             self,
@@ -43,7 +43,7 @@ class AdminStack(Stack):
             rds_instance: rds.IDatabaseInstance = None,
             **kwargs,
     ) -> None:
-        super().__init__(scope, construct_id, **kwargs)
+        super().__init__(scope, construct_id, description="Admin Dashboard Frontend - React SPA with CloudFront + Cognito Authentication", **kwargs)
         
         # Trỏ đến dist folder đã build sẵn
         frontend_asset_path = os.path.join(
