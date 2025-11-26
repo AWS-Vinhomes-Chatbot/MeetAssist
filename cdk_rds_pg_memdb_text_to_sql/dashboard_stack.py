@@ -34,7 +34,7 @@ class DashboardStack(Stack):
         construct_id: str,
         vpc: ec2.IVpc,
         security_group: ec2.ISecurityGroup,
-        history_data_bucket: s3.IBucket,
+        data_stored_bucket: s3.IBucket,
         readonly_secret: sm.ISecret,
         rds_instance: rds.IDatabaseInstance,
         user_pool: cognito.IUserPool,
@@ -80,9 +80,9 @@ class DashboardStack(Stack):
         #     iam.PolicyStatement(
         #         actions=["s3:PutObject"],
         #         resources=[
-        #             f"{history_data_bucket.bucket_arn}/appointments/*",
-        #             f"{history_data_bucket.bucket_arn}/enrollments/*",
-        #             f"{history_data_bucket.bucket_arn}/program_attendees/*",
+        #             f"{data_stored_bucket.bucket_arn}/appointments/*",
+        #             f"{data_stored_bucket.bucket_arn}/enrollments/*",
+        #             f"{data_stored_bucket.bucket_arn}/program_attendees/*",
         #         ],
         #     )
         # )
@@ -119,7 +119,7 @@ class DashboardStack(Stack):
         #         "RDS_HOST": rds_instance.db_instance_endpoint_address,
         #         "RDS_PORT": str(rds_instance.db_instance_endpoint_port),
         #         "RDS_DATABASE": "postgres",
-        #         "HISTORY_BUCKET_NAME": history_data_bucket.bucket_name,
+        #         "HISTORY_BUCKET_NAME": data_stored_bucket.bucket_name,
         #     },
         # )
 
@@ -163,8 +163,8 @@ class DashboardStack(Stack):
         #     iam.PolicyStatement(
         #         actions=["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"],
         #         resources=[
-        #             history_data_bucket.bucket_arn,
-        #             f"{history_data_bucket.bucket_arn}/*",
+        #             data_stored_bucket.bucket_arn,
+        #             f"{data_stored_bucket.bucket_arn}/*",
         #         ],
         #     )
         # )
@@ -172,7 +172,7 @@ class DashboardStack(Stack):
         # analytic_lambda_role.add_to_policy(
         #     iam.PolicyStatement(
         #         actions=["s3:PutObject", "s3:GetObject"],
-        #         resources=[f"{history_data_bucket.bucket_arn}/athena-results/*"],
+        #         resources=[f"{data_stored_bucket.bucket_arn}/athena-results/*"],
         #     )
         # )
 
@@ -218,8 +218,8 @@ class DashboardStack(Stack):
         #     log_retention=logs.RetentionDays.ONE_WEEK,
         #     environment={
         #         "ATHENA_DATABASE": glue_database.ref,
-        #         "ATHENA_OUTPUT_LOCATION": f"s3://{history_data_bucket.bucket_name}/athena-results/",
-        #         "HISTORY_BUCKET_NAME": history_data_bucket.bucket_name,
+        #         "ATHENA_OUTPUT_LOCATION": f"s3://{data_stored_bucket.bucket_name}/athena-results/",
+        #         "HISTORY_BUCKET_NAME": data_stored_bucket.bucket_name,
         #     },
         # )
 

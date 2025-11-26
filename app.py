@@ -39,12 +39,15 @@ admin_stack = AdminStack(app, "AdminStack", env=env)
 vpc_stack = AppStack(app, "AppStack", env=env)
 
 # ==================== DATABASE INIT STACK ====================
+# Tự động tạo schema + import data từ CSV files trong S3
+# Upload CSV vào s3://bucket-name/data/customer.csv, consultant.csv, ...
 db_init_stack = DatabaseInitStack(
     app, "DatabaseInitStack",
     db_instance=vpc_stack.rds_instance,
     vpc=vpc_stack.vpc,
     security_group=vpc_stack.security_group,
     readonly_secret=vpc_stack.readonly_secret,
+    data_stored_bucket=vpc_stack.data_stored_bucket,
     env=env
 )
 db_init_stack.add_dependency(vpc_stack)
@@ -55,7 +58,7 @@ dashboard_stack = DashboardStack(
     app, "DashboardStack",
     vpc=vpc_stack.vpc,
     security_group=vpc_stack.security_group,
-    history_data_bucket=vpc_stack.history_data_bucket,
+    data_stored_bucket=vpc_stack.data_stored_bucket,
     readonly_secret=vpc_stack.readonly_secret,
     rds_instance=vpc_stack.rds_instance,
     user_pool=admin_stack.user_pool,

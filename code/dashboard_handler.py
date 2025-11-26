@@ -30,7 +30,11 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict:
     Admin Lambda Handler - Xử lý các request từ Admin Dashboard
     
     Supported actions:
-    - execute_sql: Execute raw SQL statements (INSERT/UPDATE/DELETE/SELECT)
+    - get_overview_stats: Get statistics for overview page
+    - get_customers: Get all customers
+    - get_consultants: Get all consultants
+    - get_appointments: Get appointments with filters
+    - get_programs: Get community programs
     - get_tables: Get list of all tables in database
     - get_table_schema: Get schema information for a specific table
     - get_stats: Get database statistics
@@ -57,8 +61,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict:
         
         try:
             # Route to appropriate handler
-            if action == 'execute_sql':
-                result = handle_execute_sql(conn, body)
+            if action == 'get_overview_stats':
+                result = handle_get_overview_stats(conn)
+            elif action == 'get_customers':
+                result = handle_get_customers(conn, body)
+            elif action == 'get_consultants':
+                result = handle_get_consultants(conn, body)
+            elif action == 'get_appointments':
+                result = handle_get_appointments(conn, body)
+            elif action == 'get_programs':
+                result = handle_get_programs(conn, body)
             elif action == 'get_tables':
                 result = handle_get_tables(conn)
             elif action == 'get_table_schema':
@@ -79,66 +91,267 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict:
         return error_response(f"Internal server error: {str(e)}", 500)
 
 
-def handle_execute_sql(conn, body: Dict) -> Dict:
-    """
-    Execute raw SQL statements from admin
-    Supports: INSERT, UPDATE, DELETE, SELECT
-    Blocks: DROP, TRUNCATE, ALTER (for safety)
-    """
+def handle_get_overview_stats(conn) -> Dict:
+    """Get overview statistics for dashboard"""
     try:
-        sql_query = body.get('sql', '').strip()
+        stats = {}
         
-        if not sql_query:
-            return error_response("Missing 'sql' in request body", 400)
-        
-        # Validate SQL - block dangerous operations
-        dangerous_keywords = ['DROP', 'TRUNCATE', 'ALTER', 'CREATE DATABASE', 'DROP DATABASE']
-        sql_upper = sql_query.upper()
-        
-        for keyword in dangerous_keywords:
-            if keyword in sql_upper:
-                return error_response(f"Operation '{keyword}' is not allowed for safety reasons", 403)
-        
-        # Check if it's a SELECT query
-        is_select = sql_upper.strip().startswith('SELECT')
-        
-        # Execute the query
         with conn.cursor() as cur:
-            cur.execute(sql_query)
+            # Total customers
+            cur.execute("SELECT COUNT(*) FROM customer WHERE isdisabled = false")
+            stats['total_customers'] = cur.fetchone()[0]
             
-            if is_select:
-                # Fetch results for SELECT queries
-                rows = cur.fetchall()
-                columns = [desc[0] for desc in cur.description] if cur.description else []
-                
-                # Convert rows to list of dicts
-                result_data = []
-                for row in rows:
-                    result_data.append(dict(zip(columns, row)))
-                
-                logger.info(f"SELECT query executed successfully. Rows returned: {len(result_data)}")
-                
-                return success_response({
-                    "message": "SELECT query executed successfully",
-                    "rows_returned": len(result_data),
-                    "data": result_data
-                })
-            else:
-                # For INSERT/UPDATE/DELETE, commit and return affected rows
-                conn.commit()
-                rows_affected = cur.rowcount
-                
-                logger.info(f"SQL executed successfully. Rows affected: {rows_affected}")
-                
-                return success_response({
-                    "message": "SQL executed successfully",
-                    "rows_affected": rows_affected
-                })
+            # Total consultants
+            cur.execute("SELECT COUNT(*) FROM consultant WHERE isdisabled = false")
+            stats['total_consultants'] = cur.fetchone()[0]
+            
+            # Total appointments
+            cur.execute("SELECT COUNT(*) FROM appointment")
+            stats['total_appointments'] = cur.fetchone()[0]
+            
+            # Appointments by status
+            cur.execute("""
+                SELECT status, COUNT(*) 
+                FROM appointment 
+                GROUP BY status
+            """)
+            status_counts = {row[0]: row[1] for row in cur.fetchall()}
+            stats['appointments_by_status'] = status_counts
+            
+            # Pending appointments
+            stats['pending_appointments'] = status_counts.get('pending', 0)
+            
+            # Completed appointments
+            stats['completed_appointments'] = status_counts.get('completed', 0)
+            
+            # Active programs (upcoming)
+            cur.execute("SELECT COUNT(*) FROM communityprogram WHERE status = 'upcoming' AND isdisabled = false")
+            stats['active_programs'] = cur.fetchone()[0]
+            
+            # Total programs
+            cur.execute("SELECT COUNT(*) FROM communityprogram WHERE isdisabled = false")
+            stats['total_programs'] = cur.fetchone()[0]
+            
+            # Average rating
+            cur.execute("SELECT AVG(rating) FROM appointmentfeedback")
+            avg_rating = cur.fetchone()[0]
+            stats['average_rating'] = round(float(avg_rating), 2) if avg_rating else 0
+            
+            # Recent appointments (last 7 days)
+            cur.execute("""
+                SELECT COUNT(*) FROM appointment 
+                WHERE createdat >= CURRENT_DATE - INTERVAL '7 days'
+            """)
+            stats['recent_appointments'] = cur.fetchone()[0]
+            
+            # Total program participants
+            cur.execute("SELECT COUNT(*) FROM programparticipant")
+            stats['total_participants'] = cur.fetchone()[0]
+        
+        logger.info(f"Overview stats retrieved: {stats}")
+        return success_response(stats)
         
     except Exception as e:
-        conn.rollback()
-        logger.error(f"Error executing SQL: {str(e)}", exc_info=True)
-        return error_response(f"Failed to execute SQL: {str(e)}", 500)
+        logger.error(f"Error getting overview stats: {str(e)}", exc_info=True)
+        return error_response(f"Failed to get overview stats: {str(e)}", 500)
+
+
+def handle_get_customers(conn, body: Dict) -> Dict:
+    """Get customers with optional filters"""
+    try:
+        limit = body.get('limit', 100)
+        offset = body.get('offset', 0)
+        search = body.get('search', '')
+        
+        query = """
+            SELECT customerid, fullname, email, phonenumber, dateofbirth, 
+                   createdat, isdisabled, notes
+            FROM customer
+            WHERE isdisabled = false
+        """
+        params = []
+        
+        if search:
+            query += " AND (fullname ILIKE %s OR email ILIKE %s)"
+            params.extend([f'%{search}%', f'%{search}%'])
+        
+        query += " ORDER BY createdat DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+            
+            # Get total count
+            count_query = "SELECT COUNT(*) FROM customer WHERE isdisabled = false"
+            if search:
+                count_query += " AND (fullname ILIKE %s OR email ILIKE %s)"
+                cur.execute(count_query, [f'%{search}%', f'%{search}%'])
+            else:
+                cur.execute(count_query)
+            total = cur.fetchone()[0]
+        
+        customers = [dict(zip(columns, row)) for row in rows]
+        
+        logger.info(f"Retrieved {len(customers)} customers")
+        return success_response({
+            "customers": customers,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting customers: {str(e)}", exc_info=True)
+        return error_response(f"Failed to get customers: {str(e)}", 500)
+
+
+def handle_get_consultants(conn, body: Dict) -> Dict:
+    """Get consultants with optional filters"""
+    try:
+        limit = body.get('limit', 100)
+        offset = body.get('offset', 0)
+        
+        query = """
+            SELECT consultantid, fullname, email, phonenumber, imageurl,
+                   specialties, qualifications, joindate, createdat, isdisabled
+            FROM consultant
+            WHERE isdisabled = false
+            ORDER BY createdat DESC
+            LIMIT %s OFFSET %s
+        """
+        
+        with conn.cursor() as cur:
+            cur.execute(query, [limit, offset])
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+            
+            # Get total count
+            cur.execute("SELECT COUNT(*) FROM consultant WHERE isdisabled = false")
+            total = cur.fetchone()[0]
+        
+        consultants = [dict(zip(columns, row)) for row in rows]
+        
+        logger.info(f"Retrieved {len(consultants)} consultants")
+        return success_response({
+            "consultants": consultants,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting consultants: {str(e)}", exc_info=True)
+        return error_response(f"Failed to get consultants: {str(e)}", 500)
+
+
+def handle_get_appointments(conn, body: Dict) -> Dict:
+    """Get appointments with optional filters"""
+    try:
+        limit = body.get('limit', 100)
+        offset = body.get('offset', 0)
+        status = body.get('status')  # Optional: pending, confirmed, completed, cancelled
+        
+        query = """
+            SELECT 
+                a.appointmentid, a.date, a.time, a.duration, a.meetingurl,
+                a.status, a.description, a.createdat, a.updatedat,
+                c.fullname as customer_name, c.email as customer_email,
+                cs.fullname as consultant_name, cs.email as consultant_email
+            FROM appointment a
+            JOIN customer c ON a.customerid = c.customerid
+            JOIN consultant cs ON a.consultantid = cs.consultantid
+        """
+        params = []
+        
+        if status:
+            query += " WHERE a.status = %s"
+            params.append(status)
+        
+        query += " ORDER BY a.date DESC, a.time DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+            
+            # Get total count
+            count_query = "SELECT COUNT(*) FROM appointment"
+            if status:
+                count_query += " WHERE status = %s"
+                cur.execute(count_query, [status])
+            else:
+                cur.execute(count_query)
+            total = cur.fetchone()[0]
+        
+        appointments = [dict(zip(columns, row)) for row in rows]
+        
+        logger.info(f"Retrieved {len(appointments)} appointments")
+        return success_response({
+            "appointments": appointments,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting appointments: {str(e)}", exc_info=True)
+        return error_response(f"Failed to get appointments: {str(e)}", 500)
+
+
+def handle_get_programs(conn, body: Dict) -> Dict:
+    """Get community programs with optional filters"""
+    try:
+        limit = body.get('limit', 100)
+        offset = body.get('offset', 0)
+        status = body.get('status')  # Optional: upcoming, ongoing, completed
+        
+        query = """
+            SELECT programid, programname, date, description, content,
+                   organizer, url, isdisabled, status, createdat,
+                   (SELECT COUNT(*) FROM programparticipant pp 
+                    WHERE pp.programid = cp.programid) as participant_count
+            FROM communityprogram cp
+            WHERE isdisabled = false
+        """
+        params = []
+        
+        if status:
+            query += " AND status = %s"
+            params.append(status)
+        
+        query += " ORDER BY date DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+            
+            # Get total count
+            count_query = "SELECT COUNT(*) FROM communityprogram WHERE isdisabled = false"
+            if status:
+                count_query += " AND status = %s"
+                cur.execute(count_query, [status])
+            else:
+                cur.execute(count_query)
+            total = cur.fetchone()[0]
+        
+        programs = [dict(zip(columns, row)) for row in rows]
+        
+        logger.info(f"Retrieved {len(programs)} programs")
+        return success_response({
+            "programs": programs,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting programs: {str(e)}", exc_info=True)
+        return error_response(f"Failed to get programs: {str(e)}", 500)
 
 
 def handle_get_tables(conn) -> Dict:

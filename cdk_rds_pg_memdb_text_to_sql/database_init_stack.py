@@ -21,6 +21,7 @@ import os
 from aws_cdk import (
     aws_secretsmanager as sm,
     aws_iam as iam,
+    aws_s3 as s3,
     custom_resources as cr,
     aws_rds as rds,
     aws_ec2 as ec2,
@@ -46,6 +47,7 @@ class DatabaseInitStack(Stack):
             vpc: ec2.IVpc,
             security_group: ec2.ISecurityGroup,
             readonly_secret: sm.ISecret,
+            data_stored_bucket: s3.IBucket,
             **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -66,6 +68,16 @@ class DatabaseInitStack(Stack):
                      "secretsmanager:DescribeSecret", ],
             resources=[db_instance.secret.secret_arn, readonly_secret.secret_arn]
         ))
+        
+        # Thêm quyền đọc S3 bucket để import CSV data
+        cr_lambda_role.add_to_policy(iam.PolicyStatement(
+            actions=["s3:GetObject", "s3:ListBucket"],
+            resources=[
+                data_stored_bucket.bucket_arn,
+                f"{data_stored_bucket.bucket_arn}/*"
+            ]
+        ))
+        
         NagSuppressions.add_resource_suppressions(cr_lambda_role, [
             {"id": "AwsSolutions-IAM4", "reason": "This is a managed policy for Lambda VPC execution.",
              "appliesTo": ["Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"]}
@@ -95,12 +107,14 @@ class DatabaseInitStack(Stack):
                 subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
             ),
             security_groups=[security_group],
-            timeout=Duration.seconds(60),
+            timeout=Duration.minutes(5),  # Tăng timeout vì import CSV có thể mất thời gian
+            memory_size=512,  # Tăng memory để xử lý CSV
             log_retention=logs.RetentionDays.ONE_WEEK,
             environment={
                 "DB_SECRET_NAME": db_instance.secret.secret_name,
                 "READ_ONLY_SECRET_NAME": readonly_secret.secret_name,
                 "DB_NAME": "postgres",
+                "DATA_BUCKET_NAME": data_stored_bucket.bucket_name,
             },
         )
         NagSuppressions.add_stack_suppressions(

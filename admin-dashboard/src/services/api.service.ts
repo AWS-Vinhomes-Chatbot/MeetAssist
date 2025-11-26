@@ -102,23 +102,96 @@ class ApiService {
 
 export const apiService = new ApiService();
 
-// ==================== DATABASE ADMIN FUNCTIONS ====================
+// ==================== OVERVIEW & DASHBOARD ====================
 
 /**
- * Execute raw SQL query
+ * Get overview statistics for dashboard
  */
-export async function executeSql(sql: string): Promise<any> {
+export async function getOverviewStats(): Promise<any> {
   const response = await apiService.post('/admin/execute-sql', {
-    action: 'execute_sql',
-    sql
+    action: 'get_overview_stats'
   });
   
   if (!response.success) {
-    throw new Error(response.error || 'Failed to execute SQL');
+    throw new Error(response.error || 'Failed to get overview stats');
   }
   
   return response;
 }
+
+// ==================== CUSTOMERS ====================
+
+/**
+ * Get customers list
+ */
+export async function getCustomers(options?: { limit?: number; offset?: number; search?: string }): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'get_customers',
+    ...options
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get customers');
+  }
+  
+  return response;
+}
+
+// ==================== CONSULTANTS ====================
+
+/**
+ * Get consultants list
+ */
+export async function getConsultants(options?: { limit?: number; offset?: number }): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'get_consultants',
+    ...options
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get consultants');
+  }
+  
+  return response;
+}
+
+// ==================== APPOINTMENTS ====================
+
+/**
+ * Get appointments list
+ */
+export async function getAppointments(options?: { limit?: number; offset?: number; status?: string }): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'get_appointments',
+    ...options
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get appointments');
+  }
+  
+  return response;
+}
+
+// ==================== COMMUNITY PROGRAMS ====================
+
+/**
+ * Get community programs list
+ */
+export async function getPrograms(options?: { limit?: number; offset?: number; status?: string }): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'get_programs',
+    ...options
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get programs');
+  }
+  
+  return response;
+}
+
+// ==================== DATABASE ADMIN FUNCTIONS ====================
 
 /**
  * Get list of all tables

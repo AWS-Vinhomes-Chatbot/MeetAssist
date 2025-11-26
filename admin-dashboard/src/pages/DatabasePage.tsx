@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Card from '../components/Card';
 import Button from '../components/Button';
-import { executeSql, getTables, getTableSchema, getDatabaseStats } from '../services/api.service';
+import { getTables, getTableSchema, getDatabaseStats } from '../services/api.service';
 
 interface TableInfo {
   table_name: string;
@@ -32,37 +32,18 @@ interface DatabaseStats {
 }
 
 export default function DatabasePage() {
-  const [sqlQuery, setSqlQuery] = useState('');
-  const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [tableSchema, setTableSchema] = useState<TableSchema | null>(null);
   const [stats, setStats] = useState<DatabaseStats | null>(null);
-  const [activeTab, setActiveTab] = useState<'execute' | 'schema' | 'stats'>('execute');
+  const [activeTab, setActiveTab] = useState<'schema' | 'stats'>('stats');
 
-  const handleExecuteSQL = async () => {
-    if (!sqlQuery.trim()) {
-      setError('Please enter a SQL query');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      const response = await executeSql(sqlQuery);
-      setResult(response);
-      console.log('SQL executed successfully:', response);
-    } catch (err: any) {
-      setError(err.message || 'Failed to execute SQL');
-      console.error('SQL execution error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Load stats on mount
+  useEffect(() => {
+    handleGetStats();
+  }, []);
 
   const handleGetTables = async () => {
     setLoading(true);
@@ -108,46 +89,47 @@ export default function DatabasePage() {
     }
   };
 
-  const sampleQueries = [
-    {
-      label: 'Select All Courses',
-      sql: 'SELECT * FROM Course LIMIT 10;'
-    },
-    {
-      label: 'Count Accounts by Role',
-      sql: 'SELECT r.RoleName, COUNT(a.AccountID) as total FROM Account a JOIN Role r ON a.RoleID = r.RoleID GROUP BY r.RoleName;'
-    },
-    {
-      label: 'Insert New Course',
-      sql: `INSERT INTO Course (CourseName, Risk, Description, Status, IsDisabled) VALUES ('Khóa học mới', 'cao', 'Mô tả khóa học', 'active', false);`
-    },
-    {
-      label: 'Update Article Status',
-      sql: `UPDATE Article SET Status = 'Published' WHERE BlogID = 1;`
-    }
-  ];
-
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Database Management</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Database Explorer</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Execute SQL queries and manage your database
+          View database statistics and explore table schemas
         </p>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-red-800">Error</h3>
+              <p className="mt-1 text-sm text-red-700">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           <button
-            onClick={() => setActiveTab('execute')}
+            onClick={() => {
+              setActiveTab('stats');
+              handleGetStats();
+            }}
             className={`${
-              activeTab === 'execute'
+              activeTab === 'stats'
                 ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
           >
-            Execute SQL
+            📊 Statistics
           </button>
           <button
             onClick={() => {
@@ -160,147 +142,104 @@ export default function DatabasePage() {
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
           >
-            Schema Explorer
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('stats');
-              handleGetStats();
-            }}
-            className={`${
-              activeTab === 'stats'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-          >
-            Statistics
+            🗄️ Schema Explorer
           </button>
         </nav>
       </div>
 
-      {/* Execute SQL Tab */}
-      {activeTab === 'execute' && (
-        <div className="space-y-4">
-          <Card>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  SQL Query
-                </label>
-                <textarea
-                  value={sqlQuery}
-                  onChange={(e) => setSqlQuery(e.target.value)}
-                  rows={10}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-                  placeholder="Enter your SQL query here..."
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="flex gap-2">
-                  <Button onClick={handleExecuteSQL} disabled={loading}>
-                    {loading ? 'Executing...' : 'Execute SQL'}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setSqlQuery('');
-                      setResult(null);
-                      setError(null);
-                    }}
-                  >
-                    Clear
-                  </Button>
-                </div>
-              </div>
-
-              {/* Sample Queries */}
-              <div className="border-t pt-4">
-                <p className="text-sm font-medium text-gray-700 mb-2">Sample Queries:</p>
-                <div className="flex flex-wrap gap-2">
-                  {sampleQueries.map((query, index) => (
-                    <button
-                      key={index}
-                      onClick={() => setSqlQuery(query.sql)}
-                      className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md text-gray-700"
-                    >
-                      {query.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+      {/* Statistics Tab */}
+      {activeTab === 'stats' && (
+        <div className="space-y-6">
+          {loading && !stats ? (
+            <div className="text-center py-12">
+              <p className="text-gray-500">Loading statistics...</p>
             </div>
-          </Card>
-
-          {/* Error Display */}
-          {error && (
-            <Card>
-              <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
+          ) : stats ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <Card>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-gray-500">Total Tables</p>
+                    <p className="text-3xl font-bold text-blue-600 mt-2">{stats.total_tables}</p>
                   </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800">Error</h3>
-                    <p className="mt-1 text-sm text-red-700">{error}</p>
+                </Card>
+                <Card>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-gray-500">Total Rows</p>
+                    <p className="text-3xl font-bold text-green-600 mt-2">
+                      {stats.total_rows.toLocaleString()}
+                    </p>
                   </div>
-                </div>
+                </Card>
+                <Card>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-gray-500">Average Rows/Table</p>
+                    <p className="text-3xl font-bold text-purple-600 mt-2">
+                      {stats.total_tables > 0 ? Math.round(stats.total_rows / stats.total_tables) : 0}
+                    </p>
+                  </div>
+                </Card>
               </div>
-            </Card>
-          )}
 
-          {/* Result Display */}
-          {result && (
-            <Card>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-medium text-gray-900">Query Results</h3>
-                  <span className="text-sm text-gray-500">
-                    {result.rows_affected !== undefined
-                      ? `${result.rows_affected} rows affected`
-                      : `${result.rows_returned} rows returned`}
-                  </span>
+              <Card>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium text-gray-900">Table Statistics</h3>
+                  <Button variant="secondary" size="sm" onClick={handleGetStats} disabled={loading}>
+                    {loading ? 'Loading...' : '🔄 Refresh'}
+                  </Button>
                 </div>
-
-                {result.data && result.data.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          {Object.keys(result.data[0]).map((key) => (
-                            <th
-                              key={key}
-                              className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                            >
-                              {key}
-                            </th>
-                          ))}
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Table Name
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Row Count
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Distribution
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {stats.table_stats.map((table) => (
+                        <tr key={table.table_name} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            📋 {table.table_name}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {table.row_count.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <div className="flex items-center">
+                              <div className="w-32 bg-gray-200 rounded-full h-2 mr-2">
+                                <div
+                                  className="bg-blue-600 h-2 rounded-full"
+                                  style={{
+                                    width: `${stats.total_rows > 0 ? (table.row_count / stats.total_rows) * 100 : 0}%`
+                                  }}
+                                />
+                              </div>
+                              <span>
+                                {stats.total_rows > 0 
+                                  ? ((table.row_count / stats.total_rows) * 100).toFixed(1)
+                                  : 0}%
+                              </span>
+                            </div>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {result.data.map((row: any, idx: number) => (
-                          <tr key={idx}>
-                            {Object.values(row).map((value: any, cellIdx: number) => (
-                              <td key={cellIdx} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {value !== null ? String(value) : 'NULL'}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {result.message && (
-                  <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                    <p className="text-sm text-green-800">{result.message}</p>
-                  </div>
-                )}
-              </div>
-            </Card>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-gray-500">No statistics available</p>
+            </div>
           )}
         </div>
       )}
@@ -312,36 +251,50 @@ export default function DatabasePage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-medium text-gray-900">Tables</h3>
-                <Button variant="secondary" size="sm" onClick={handleGetTables}>
+                <Button variant="secondary" size="sm" onClick={handleGetTables} disabled={loading}>
                   Refresh
                 </Button>
               </div>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {tables.map((table) => (
-                  <button
-                    key={table.table_name}
-                    onClick={() => handleGetTableSchema(table.table_name)}
-                    className={`w-full text-left px-3 py-2 rounded-md text-sm ${
-                      selectedTable === table.table_name
-                        ? 'bg-blue-50 text-blue-700 font-medium'
-                        : 'hover:bg-gray-50 text-gray-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span>{table.table_name}</span>
-                      <span className="text-xs text-gray-500">{table.column_count} cols</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
+              {loading && tables.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">Loading tables...</p>
+                </div>
+              ) : tables.length > 0 ? (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {tables.map((table) => (
+                    <button
+                      key={table.table_name}
+                      onClick={() => handleGetTableSchema(table.table_name)}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+                        selectedTable === table.table_name
+                          ? 'bg-blue-50 text-blue-700 font-medium'
+                          : 'hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>📋 {table.table_name}</span>
+                        <span className="text-xs text-gray-500">{table.column_count} cols</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No tables found</p>
+                </div>
+              )}
             </div>
           </Card>
 
           <Card className="lg:col-span-2">
-            {tableSchema ? (
+            {loading && selectedTable ? (
+              <div className="text-center py-12">
+                <p className="text-gray-500">Loading schema...</p>
+              </div>
+            ) : tableSchema ? (
               <div className="space-y-4">
                 <h3 className="text-lg font-medium text-gray-900">
-                  {tableSchema.table_name} Schema
+                  📋 {tableSchema.table_name} <span className="text-sm font-normal text-gray-500">({tableSchema.total_columns} columns)</span>
                 </h3>
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
@@ -363,19 +316,29 @@ export default function DatabasePage() {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {tableSchema.columns.map((col) => (
-                        <tr key={col.column_name}>
+                        <tr key={col.column_name} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                             {col.column_name}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {col.data_type}
-                            {col.max_length && `(${col.max_length})`}
+                            <code className="bg-gray-100 px-2 py-1 rounded text-xs">
+                              {col.data_type}
+                              {col.max_length && `(${col.max_length})`}
+                            </code>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            {col.nullable ? (
+                              <span className="text-green-600">✓ Yes</span>
+                            ) : (
+                              <span className="text-red-600">✗ No</span>
+                            )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {col.nullable ? 'Yes' : 'No'}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {col.default || '-'}
+                            {col.default ? (
+                              <code className="bg-gray-100 px-2 py-1 rounded text-xs">{col.default}</code>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -385,85 +348,9 @@ export default function DatabasePage() {
               </div>
             ) : (
               <div className="text-center py-12">
-                <p className="text-gray-500">Select a table to view its schema</p>
+                <p className="text-gray-500">👈 Select a table to view its schema</p>
               </div>
             )}
-          </Card>
-        </div>
-      )}
-
-      {/* Statistics Tab */}
-      {activeTab === 'stats' && stats && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card>
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-500">Total Tables</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{stats.total_tables}</p>
-            </div>
-          </Card>
-          <Card>
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-500">Total Rows</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">
-                {stats.total_rows.toLocaleString()}
-              </p>
-            </div>
-          </Card>
-          <Card>
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-500">Average Rows/Table</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">
-                {Math.round(stats.total_rows / stats.total_tables)}
-              </p>
-            </div>
-          </Card>
-
-          <Card className="md:col-span-3">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Table Statistics</h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Table Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Row Count
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Percentage
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {stats.table_stats.map((table) => (
-                    <tr key={table.table_name}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {table.table_name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {table.row_count.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div className="flex items-center">
-                          <div className="w-32 bg-gray-200 rounded-full h-2 mr-2">
-                            <div
-                              className="bg-blue-600 h-2 rounded-full"
-                              style={{
-                                width: `${(table.row_count / stats.total_rows) * 100}%`
-                              }}
-                            />
-                          </div>
-                          <span>
-                            {((table.row_count / stats.total_rows) * 100).toFixed(1)}%
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </Card>
         </div>
       )}

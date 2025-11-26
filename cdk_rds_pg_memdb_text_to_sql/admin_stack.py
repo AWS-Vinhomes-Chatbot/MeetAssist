@@ -38,7 +38,7 @@ class AdminStack(Stack):
             construct_id: str,
             vpc: ec2.IVpc = None,
             security_group: ec2.ISecurityGroup = None,
-            history_data_bucket: s3.IBucket = None,
+            data_stored_bucket: s3.IBucket = None,
             readonly_secret: sm.ISecret = None,
             rds_instance: rds.IDatabaseInstance = None,
             **kwargs,

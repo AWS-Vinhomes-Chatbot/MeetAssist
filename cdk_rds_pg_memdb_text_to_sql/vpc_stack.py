@@ -41,7 +41,7 @@ class AppStack(Stack):
     security_group: ec2.ISecurityGroup
     rds_instance: rds.IDatabaseInstance
     readonly_secret: sm.ISecret
-    history_data_bucket: s3.IBucket
+    data_stored_bucket: s3.IBucket
 
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -139,11 +139,12 @@ class AppStack(Stack):
         self.security_group = database_sg
         self.rds_instance.connections.allow_default_port_from(database_sg)
 
-
-        self.history_data_bucket = s3.Bucket(
-            self, "HistoryDataBucket",
-            removal_policy=RemovalPolicy.DESTROY,
-            auto_delete_objects=True,
+        # S3 bucket để lưu CSV data - RETAIN để giữ lại khi destroy stack
+        self.data_stored_bucket = s3.Bucket(
+            self, "DataStoredBucket",
+            bucket_name=f"meetassist-data-{Stack.of(self).account}-{Stack.of(self).region}",
+            removal_policy=RemovalPolicy.RETAIN,  # Giữ lại bucket khi destroy
+            auto_delete_objects=False,  # Không auto delete vì RETAIN
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True
@@ -175,8 +176,8 @@ class AppStack(Stack):
             principals=[iam.AnyPrincipal()],
             actions=["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
             resources=[
-                self.history_data_bucket.bucket_arn,
-                self.history_data_bucket.bucket_arn + "/*",
+                self.data_stored_bucket.bucket_arn,
+                self.data_stored_bucket.bucket_arn + "/*",
                 f"arn:aws:s3:::{s3_bucket_name.value_as_string}", 
                 f"arn:aws:s3:::{s3_bucket_name.value_as_string}/*"
             ]
