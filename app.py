@@ -39,8 +39,6 @@ admin_stack = AdminStack(app, "AdminStack", env=env)
 vpc_stack = AppStack(app, "AppStack", env=env)
 
 # ==================== DATABASE INIT STACK ====================
-# CHỈ CẦN DEPLOY 1 LẦN ĐẦU TIÊN để tạo schema từ career_couseling_schema.sql
-# Nếu RDS đã có schema rồi → comment lại để tránh conflict
 db_init_stack = DatabaseInitStack(
     app, "DatabaseInitStack",
     db_instance=vpc_stack.rds_instance,
@@ -64,8 +62,7 @@ dashboard_stack = DashboardStack(
     env=env
 )
 dashboard_stack.add_dependency(admin_stack)
-dashboard_stack.add_dependency(vpc_stack)
-dashboard_stack.add_dependency(db_init_stack)
+dashboard_stack.add_dependency(db_init_stack) 
 
 # Comment tạm các stack khác
 # data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
