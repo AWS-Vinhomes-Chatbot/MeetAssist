@@ -8,8 +8,6 @@ import { config, validateConfig } from './aws-exports';
 const OverviewPage = React.lazy(() => import('./pages/OverviewPage'));
 const ConversationsPage = React.lazy(() => import('./pages/ConversationsPage'));
 const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
-const CrawlerPage = React.lazy(() => import('./pages/CrawlerPage'));
-const DatabasePage = React.lazy(() => import('./pages/DatabasePage'));
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -156,8 +154,6 @@ function App() {
               <Route path="/" element={<OverviewPage />} />
               <Route path="/conversations" element={<ConversationsPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
-              <Route path="/crawler" element={<CrawlerPage />} />
-              <Route path="/database" element={<DatabasePage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </React.Suspense>
