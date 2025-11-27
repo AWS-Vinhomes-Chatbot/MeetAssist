@@ -13,7 +13,6 @@ from aws_cdk import (
     aws_apigateway as apigw,
     aws_secretsmanager as sm,
     aws_rds as rds,
-    aws_glue as glue,
     aws_logs as logs,
     aws_events as events,
     aws_events_targets as targets,
@@ -46,18 +45,9 @@ class DashboardStack(Stack):
             os.path.dirname(os.path.abspath(__file__)), "..", "code"
         )
 
-        # ==================== GLUE DATABASE (COMMENT - CHƯA CẦN) ====================
-        # glue_database = glue.CfnDatabase(
-        #     self,
-        #     "HistoryDatabase",
-        #     catalog_id=Stack.of(self).account,
-        #     database_input=glue.CfnDatabase.DatabaseInputProperty(
-        #         name="meetassist_history",
-        #         description="Historical data from MeetAssist RDS",
-        #     ),
-        # )
-
-        # ==================== ARCHIVE DATA LAMBDA (COMMENT - CHƯA CẦN TEST) ====================
+        # ==================== ARCHIVE DATA LAMBDA (COMMENT - CHƯA LÀM) ====================
+        # Lambda để backup data từ RDS sang S3 (chạy định kỳ qua EventBridge)
+        # Khi deploy lại project, index.py sẽ đọc data từ S3 và restore vào RDS
         # archive_lambda_role = iam.Role(
         #     self,
         #     "ArchiveDataRole",
@@ -78,11 +68,10 @@ class DashboardStack(Stack):
 
         # archive_lambda_role.add_to_policy(
         #     iam.PolicyStatement(
-        #         actions=["s3:PutObject"],
+        #         actions=["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
         #         resources=[
-        #             f"{data_stored_bucket.bucket_arn}/appointments/*",
-        #             f"{data_stored_bucket.bucket_arn}/enrollments/*",
-        #             f"{data_stored_bucket.bucket_arn}/program_attendees/*",
+        #             data_stored_bucket.bucket_arn,
+        #             f"{data_stored_bucket.bucket_arn}/*",
         #         ],
         #     )
         # )
@@ -95,7 +84,7 @@ class DashboardStack(Stack):
         #     handler="archive_handler.lambda_handler",
         #     role=archive_lambda_role,
         #     code=lambda_.Code.from_asset(
-        #         os.path.join(lambda_code_path, "archive_handler"),
+        #         lambda_code_path,
         #         bundling=BundlingOptions(
         #             image=lambda_.Runtime.PYTHON_3_12.bundling_image,
         #             command=[
@@ -123,7 +112,8 @@ class DashboardStack(Stack):
         #     },
         # )
 
-        # ==================== EVENTBRIDGE (COMMENT - CHƯA CẦN TEST) ====================
+        # ==================== EVENTBRIDGE SCHEDULE (COMMENT - CHƯA LÀM) ====================
+        # Chạy Archive Lambda hàng ngày lúc 2 AM UTC để backup data mới từ RDS sang S3
         # archive_schedule = events.Rule(
         #     self,
         #     "DailyArchiveSchedule",
@@ -145,82 +135,6 @@ class DashboardStack(Stack):
         #     principal=iam.ServicePrincipal("events.amazonaws.com"),
         #     action="lambda:InvokeFunction",
         #     source_arn=archive_schedule.rule_arn,
-        # )
-
-        # ==================== ANALYTIC LAMBDA (COMMENT - CHƯA CẦN TEST) ====================
-        # analytic_lambda_role = iam.Role(
-        #     self,
-        #     "AnalyticHandlerRole",
-        #     assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-        #     managed_policies=[
-        #         iam.ManagedPolicy.from_aws_managed_policy_name(
-        #             "service-role/AWSLambdaBasicExecutionRole"
-        #         )
-        #     ],
-        # )
-
-        # analytic_lambda_role.add_to_policy(
-        #     iam.PolicyStatement(
-        #         actions=["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"],
-        #         resources=[
-        #             data_stored_bucket.bucket_arn,
-        #             f"{data_stored_bucket.bucket_arn}/*",
-        #         ],
-        #     )
-        # )
-
-        # analytic_lambda_role.add_to_policy(
-        #     iam.PolicyStatement(
-        #         actions=["s3:PutObject", "s3:GetObject"],
-        #         resources=[f"{data_stored_bucket.bucket_arn}/athena-results/*"],
-        #     )
-        # )
-
-        # analytic_lambda_role.add_to_policy(
-        #     iam.PolicyStatement(
-        #         actions=[
-        #             "athena:StartQueryExecution",
-        #             "athena:GetQueryExecution",
-        #             "athena:GetQueryResults",
-        #             "athena:StopQueryExecution",
-        #         ],
-        #         resources=[
-        #             f"arn:aws:athena:{Stack.of(self).region}:{Stack.of(self).account}:workgroup/primary"
-        #         ],
-        #     )
-        # )
-
-        # analytic_lambda_role.add_to_policy(
-        #     iam.PolicyStatement(
-        #         actions=[
-        #             "glue:GetDatabase",
-        #             "glue:CreateTable",
-        #             "glue:GetTable",
-        #             "glue:UpdateTable",
-        #         ],
-        #         resources=[
-        #             f"arn:aws:glue:{Stack.of(self).region}:{Stack.of(self).account}:catalog",
-        #             f"arn:aws:glue:{Stack.of(self).region}:{Stack.of(self).account}:database/{glue_database.ref}",
-        #             f"arn:aws:glue:{Stack.of(self).region}:{Stack.of(self).account}:table/{glue_database.ref}/*",
-        #         ],
-        #     )
-        # )
-
-        # analytic_handler_lambda = lambda_.Function(
-        #     self,
-        #     "AnalyticHandler",
-        #     function_name="DashboardStack-AnalyticHandler",
-        #     runtime=lambda_.Runtime.PYTHON_3_12,
-        #     handler="analytic_handler.lambda_handler",
-        #     role=analytic_lambda_role,
-        #     code=lambda_.Code.from_asset(lambda_code_path),
-        #     timeout=Duration.minutes(5),
-        #     log_retention=logs.RetentionDays.ONE_WEEK,
-        #     environment={
-        #         "ATHENA_DATABASE": glue_database.ref,
-        #         "ATHENA_OUTPUT_LOCATION": f"s3://{data_stored_bucket.bucket_name}/athena-results/",
-        #         "HISTORY_BUCKET_NAME": data_stored_bucket.bucket_name,
-        #     },
         # )
 
         # ==================== ADMIN MANAGER LAMBDA ====================
@@ -326,15 +240,6 @@ class DashboardStack(Stack):
             authorizer=authorizer,
         )
 
-        # ENDPOINT 2: POST /admin/analytics (COMMENT - CHƯA CẦN TEST)
-        # analytics_resource = admin_resource.add_resource("analytics")
-        # analytics_resource.add_method(
-        #     "POST",
-        #     apigw.LambdaIntegration(analytic_handler_lambda),
-        #     authorization_type=apigw.AuthorizationType.COGNITO,
-        #     authorizer=authorizer,
-        # )
-
         # ==================== OUTPUTS ====================
         CfnOutput(
             self,
@@ -345,28 +250,14 @@ class DashboardStack(Stack):
 
         # CfnOutput(
         #     self,
-        #     "AthenaDatabase",
-        #     value=glue_database.ref,
-        #     description="Glue Database name for Athena",
-        # )
-
-        # CfnOutput(
-        #     self,
         #     "ArchiveLambdaName",
         #     value=archive_data_lambda.function_name,
-        #     description="Archive Lambda function name",
-        # )
-
-        # CfnOutput(
-        #     self,
-        #     "AnalyticLambdaName",
-        #     value=analytic_handler_lambda.function_name,
-        #     description="Analytic Lambda function name",
+        #     description="Archive Lambda function name (RDS -> S3 backup)",
         # )
 
         CfnOutput(
             self,
             "AdminManagerLambdaName",
             value=admin_manager_lambda.function_name,
-            description="Admin Manager Lambda function name",
+            description="Admin Manager Lambda function name (CRUD operations)",
         )
