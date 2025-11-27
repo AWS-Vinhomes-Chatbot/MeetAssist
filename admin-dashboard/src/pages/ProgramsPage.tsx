@@ -32,7 +32,7 @@ export default function ProgramsPage() {
       if (statusFilter) params.status = statusFilter;
       
       const response = await getPrograms(params);
-      setPrograms(response.data || []);
+      setPrograms(response.programs || []);
     } catch (error) {
       console.error('Error fetching programs:', error);
     } finally {

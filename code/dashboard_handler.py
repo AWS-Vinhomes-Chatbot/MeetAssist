@@ -95,6 +95,8 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
     Returns:
         API Gateway response dict
     """
+    logger.info(f"Routing action: {action} with body: {json.dumps(body, default=str)}")
+    
     try:
         if action == 'get_overview_stats':
             data = service.get_overview_stats()
@@ -256,6 +258,7 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
 
 def success_response(data: Dict, status_code: int = 200) -> Dict:
     """Build success response"""
+    logger.info(f"Success response: {json.dumps(data, default=str)[:500]}")  # Log first 500 chars
     return {
         'statusCode': status_code,
         'headers': {
@@ -270,6 +273,7 @@ def success_response(data: Dict, status_code: int = 200) -> Dict:
 
 def error_response(message: str, status_code: int = 500) -> Dict:
     """Build error response"""
+    logger.error(f"Error response ({status_code}): {message}")
     return {
         'statusCode': status_code,
         'headers': {

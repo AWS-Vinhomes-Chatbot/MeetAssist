@@ -44,7 +44,7 @@ export default function AppointmentsPage() {
       if (statusFilter) params.status = statusFilter;
       
       const response = await getAppointments(params);
-      setAppointments(response.data || []);
+      setAppointments(response.appointments || []);
     } catch (error) {
       console.error('Error fetching appointments:', error);
     } finally {
@@ -55,7 +55,7 @@ export default function AppointmentsPage() {
   const fetchConsultants = async () => {
     try {
       const response = await getConsultants({ limit: 100, offset: 0 });
-      setConsultants(response.data || []);
+      setConsultants(response.consultants || []);
     } catch (error) {
       console.error('Error fetching consultants:', error);
     }
@@ -64,7 +64,7 @@ export default function AppointmentsPage() {
   const fetchCustomers = async () => {
     try {
       const response = await getCustomers({ limit: 100, offset: 0 });
-      setCustomers(response.data || []);
+      setCustomers(response.customers || []);
     } catch (error) {
       console.error('Error fetching customers:', error);
     }

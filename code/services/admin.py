@@ -214,7 +214,8 @@ class Admin:
         """
         query = """
             SELECT 
-                a.appointmentid, a.date, a.time, a.duration, a.meetingurl,
+                a.appointmentid, a.customerid, a.consultantid,
+                a.date, a.time, a.duration, a.meetingurl,
                 a.status, a.description, a.createdat, a.updatedat,
                 c.fullname as customer_name, c.email as customer_email,
                 cs.fullname as consultant_name, cs.email as consultant_email

@@ -28,7 +28,7 @@ export default function ConsultantsPage() {
     try {
       setLoading(true);
       const response = await getConsultants({ limit: 100, offset: 0 });
-      setConsultants(response.data || []);
+      setConsultants(response.consultants || []);
     } catch (error) {
       console.error('Error fetching consultants:', error);
     } finally {

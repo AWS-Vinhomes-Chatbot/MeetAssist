@@ -118,6 +118,11 @@ export interface Appointment {
   description?: string;
   createdat?: string;
   updatedat?: string;
+  // Joined fields from backend
+  customer_name?: string;
+  customer_email?: string;
+  consultant_name?: string;
+  consultant_email?: string;
 }
 
 export interface CommunityProgram {
