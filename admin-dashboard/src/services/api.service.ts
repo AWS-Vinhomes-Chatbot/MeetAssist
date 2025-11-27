@@ -239,4 +239,209 @@ export async function getDatabaseStats(): Promise<any> {
   return response;
 }
 
+// ==================== CONSULTANT CRUD ====================
+
+/**
+ * Create a new consultant
+ */
+export async function createConsultant(data: {
+  fullname: string;
+  email: string;
+  phonenumber?: string;
+  imageurl?: string;
+  specialties?: string;
+  qualifications?: string;
+  joindate?: string;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'create_consultant',
+    ...data
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to create consultant');
+  }
+  
+  return response;
+}
+
+/**
+ * Update an existing consultant
+ */
+export async function updateConsultant(consultantid: number, data: {
+  fullname?: string;
+  email?: string;
+  phonenumber?: string;
+  imageurl?: string;
+  specialties?: string;
+  qualifications?: string;
+  joindate?: string;
+  isdisabled?: boolean;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'update_consultant',
+    consultantid,
+    ...data
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to update consultant');
+  }
+  
+  return response;
+}
+
+/**
+ * Delete a consultant (soft delete)
+ */
+export async function deleteConsultant(consultantid: number): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'delete_consultant',
+    consultantid
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to delete consultant');
+  }
+  
+  return response;
+}
+
+// ==================== APPOINTMENT CRUD ====================
+
+/**
+ * Create a new appointment
+ */
+export async function createAppointment(data: {
+  consultantid: number;
+  customerid: number;
+  date: string;
+  time: string;
+  duration?: number;
+  meetingurl?: string;
+  status?: string;
+  description?: string;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'create_appointment',
+    ...data
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to create appointment');
+  }
+  
+  return response;
+}
+
+/**
+ * Update an existing appointment
+ */
+export async function updateAppointment(appointmentid: number, data: {
+  consultantid?: number;
+  customerid?: number;
+  date?: string;
+  time?: string;
+  duration?: number;
+  meetingurl?: string;
+  status?: string;
+  description?: string;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'update_appointment',
+    appointmentid,
+    ...data
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to update appointment');
+  }
+  
+  return response;
+}
+
+/**
+ * Delete an appointment
+ */
+export async function deleteAppointment(appointmentid: number): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'delete_appointment',
+    appointmentid
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to delete appointment');
+  }
+  
+  return response;
+}
+
+// ==================== COMMUNITY PROGRAM CRUD ====================
+
+/**
+ * Create a new community program
+ */
+export async function createProgram(data: {
+  programname: string;
+  date: string;
+  description?: string;
+  content?: string;
+  organizer?: string;
+  url?: string;
+  status?: string;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'create_program',
+    ...data
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to create program');
+  }
+  
+  return response;
+}
+
+/**
+ * Update an existing community program
+ */
+export async function updateProgram(programid: number, data: {
+  programname?: string;
+  date?: string;
+  description?: string;
+  content?: string;
+  organizer?: string;
+  url?: string;
+  status?: string;
+  isdisabled?: boolean;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'update_program',
+    programid,
+    ...data
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to update program');
+  }
+  
+  return response;
+}
+
+/**
+ * Delete a community program (soft delete)
+ */
+export async function deleteProgram(programid: number): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'delete_program',
+    programid
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to delete program');
+  }
+  
+  return response;
+}
+
 export default apiService;

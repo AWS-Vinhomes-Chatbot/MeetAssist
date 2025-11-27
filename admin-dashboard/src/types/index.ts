@@ -90,3 +90,56 @@ export interface ChartData {
     borderWidth?: number;
   }[];
 }
+
+// ==================== CRUD ENTITIES ====================
+
+export interface Consultant {
+  consultantid: number;
+  fullname: string;
+  email: string;
+  phonenumber?: string;
+  imageurl?: string;
+  specialties?: string;
+  qualifications?: string;
+  joindate?: string;
+  createdat?: string;
+  isdisabled?: boolean;
+}
+
+export interface Appointment {
+  appointmentid: number;
+  consultantid: number;
+  customerid: number;
+  date: string;
+  time: string;
+  duration: number;
+  meetingurl?: string;
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  description?: string;
+  createdat?: string;
+  updatedat?: string;
+}
+
+export interface CommunityProgram {
+  programid: number;
+  programname: string;
+  date: string;
+  description?: string;
+  content?: string;
+  organizer?: string;
+  url?: string;
+  isdisabled?: boolean;
+  status: 'upcoming' | 'ongoing' | 'completed';
+  createdat?: string;
+}
+
+export interface Customer {
+  customerid: number;
+  fullname: string;
+  email: string;
+  phonenumber?: string;
+  dateofbirth?: string;
+  createdat?: string;
+  isdisabled?: boolean;
+  notes?: string;
+}

@@ -434,3 +434,522 @@ class Admin:
         
         self._log_info(f"Database stats retrieved: {stats}")
         return stats
+
+    # ==================== CONSULTANT CRUD ====================
+    
+    def create_consultant(
+        self,
+        fullname: str,
+        email: str,
+        phonenumber: str = None,
+        imageurl: str = None,
+        specialties: str = None,
+        qualifications: str = None,
+        joindate: str = None
+    ) -> Dict[str, Any]:
+        """
+        Create a new consultant
+        
+        Args:
+            fullname: Consultant's full name
+            email: Consultant's email (unique)
+            phonenumber: Phone number
+            imageurl: URL to consultant's image
+            specialties: Areas of expertise
+            qualifications: Educational/professional qualifications
+            joindate: Date consultant joined
+            
+        Returns:
+            Dict with created consultant data
+        """
+        query = """
+            INSERT INTO consultant 
+            (fullname, email, phonenumber, imageurl, specialties, qualifications, joindate)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING consultantid, fullname, email, phonenumber, imageurl, 
+                      specialties, qualifications, joindate, createdat, isdisabled
+        """
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, (
+                fullname, email, phonenumber, imageurl, 
+                specialties, qualifications, joindate
+            ))
+            result = cur.fetchone()
+            self.conn.commit()
+        
+        consultant = {
+            "consultantid": result[0],
+            "fullname": result[1],
+            "email": result[2],
+            "phonenumber": result[3],
+            "imageurl": result[4],
+            "specialties": result[5],
+            "qualifications": result[6],
+            "joindate": result[7],
+            "createdat": result[8],
+            "isdisabled": result[9]
+        }
+        
+        self._log_info(f"Created consultant: {consultant['consultantid']}")
+        return {"success": True, "data": consultant}
+    
+    def update_consultant(
+        self,
+        consultantid: int,
+        fullname: str = None,
+        email: str = None,
+        phonenumber: str = None,
+        imageurl: str = None,
+        specialties: str = None,
+        qualifications: str = None,
+        joindate: str = None,
+        isdisabled: bool = None
+    ) -> Dict[str, Any]:
+        """
+        Update an existing consultant
+        
+        Args:
+            consultantid: ID of consultant to update
+            (other params): Fields to update (only provided fields will be updated)
+            
+        Returns:
+            Dict with updated consultant data
+        """
+        # Build dynamic UPDATE query based on provided fields
+        update_fields = []
+        params = []
+        
+        if fullname is not None:
+            update_fields.append("fullname = %s")
+            params.append(fullname)
+        if email is not None:
+            update_fields.append("email = %s")
+            params.append(email)
+        if phonenumber is not None:
+            update_fields.append("phonenumber = %s")
+            params.append(phonenumber)
+        if imageurl is not None:
+            update_fields.append("imageurl = %s")
+            params.append(imageurl)
+        if specialties is not None:
+            update_fields.append("specialties = %s")
+            params.append(specialties)
+        if qualifications is not None:
+            update_fields.append("qualifications = %s")
+            params.append(qualifications)
+        if joindate is not None:
+            update_fields.append("joindate = %s")
+            params.append(joindate)
+        if isdisabled is not None:
+            update_fields.append("isdisabled = %s")
+            params.append(isdisabled)
+        
+        if not update_fields:
+            return {"success": False, "error": "No fields to update"}
+        
+        params.append(consultantid)
+        query = f"""
+            UPDATE consultant 
+            SET {', '.join(update_fields)}
+            WHERE consultantid = %s
+            RETURNING consultantid, fullname, email, phonenumber, imageurl,
+                      specialties, qualifications, joindate, createdat, isdisabled
+        """
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, params)
+            result = cur.fetchone()
+            self.conn.commit()
+            
+            if not result:
+                return {"success": False, "error": "Consultant not found"}
+        
+        consultant = {
+            "consultantid": result[0],
+            "fullname": result[1],
+            "email": result[2],
+            "phonenumber": result[3],
+            "imageurl": result[4],
+            "specialties": result[5],
+            "qualifications": result[6],
+            "joindate": result[7],
+            "createdat": result[8],
+            "isdisabled": result[9]
+        }
+        
+        self._log_info(f"Updated consultant: {consultantid}")
+        return {"success": True, "data": consultant}
+    
+    def delete_consultant(self, consultantid: int) -> Dict[str, Any]:
+        """
+        Soft delete a consultant (set isdisabled = true)
+        
+        Args:
+            consultantid: ID of consultant to delete
+            
+        Returns:
+            Dict with success status
+        """
+        query = """
+            UPDATE consultant 
+            SET isdisabled = true
+            WHERE consultantid = %s
+            RETURNING consultantid
+        """
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, (consultantid,))
+            result = cur.fetchone()
+            self.conn.commit()
+            
+            if not result:
+                return {"success": False, "error": "Consultant not found"}
+        
+        self._log_info(f"Deleted consultant: {consultantid}")
+        return {"success": True, "message": "Consultant deleted successfully"}
+
+    # ==================== APPOINTMENT CRUD ====================
+    
+    def create_appointment(
+        self,
+        consultantid: int,
+        customerid: int,
+        date: str,
+        time: str,
+        duration: int = 60,
+        meetingurl: str = None,
+        status: str = 'pending',
+        description: str = None
+    ) -> Dict[str, Any]:
+        """
+        Create a new appointment
+        
+        Args:
+            consultantid: ID of consultant
+            customerid: ID of customer
+            date: Appointment date (YYYY-MM-DD)
+            time: Appointment time (HH:MM:SS)
+            duration: Duration in minutes
+            meetingurl: Online meeting URL
+            status: Appointment status (pending/confirmed/completed/cancelled)
+            description: Additional notes
+            
+        Returns:
+            Dict with created appointment data
+        """
+        query = """
+            INSERT INTO appointment 
+            (consultantid, customerid, date, time, duration, meetingurl, status, description)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING appointmentid, consultantid, customerid, date, time, duration,
+                      meetingurl, status, description, createdat, updatedat
+        """
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, (
+                consultantid, customerid, date, time, duration,
+                meetingurl, status, description
+            ))
+            result = cur.fetchone()
+            self.conn.commit()
+        
+        appointment = {
+            "appointmentid": result[0],
+            "consultantid": result[1],
+            "customerid": result[2],
+            "date": result[3],
+            "time": result[4],
+            "duration": result[5],
+            "meetingurl": result[6],
+            "status": result[7],
+            "description": result[8],
+            "createdat": result[9],
+            "updatedat": result[10]
+        }
+        
+        self._log_info(f"Created appointment: {appointment['appointmentid']}")
+        return {"success": True, "data": appointment}
+    
+    def update_appointment(
+        self,
+        appointmentid: int,
+        consultantid: int = None,
+        customerid: int = None,
+        date: str = None,
+        time: str = None,
+        duration: int = None,
+        meetingurl: str = None,
+        status: str = None,
+        description: str = None
+    ) -> Dict[str, Any]:
+        """
+        Update an existing appointment
+        
+        Args:
+            appointmentid: ID of appointment to update
+            (other params): Fields to update
+            
+        Returns:
+            Dict with updated appointment data
+        """
+        update_fields = ["updatedat = CURRENT_TIMESTAMP"]
+        params = []
+        
+        if consultantid is not None:
+            update_fields.append("consultantid = %s")
+            params.append(consultantid)
+        if customerid is not None:
+            update_fields.append("customerid = %s")
+            params.append(customerid)
+        if date is not None:
+            update_fields.append("date = %s")
+            params.append(date)
+        if time is not None:
+            update_fields.append("time = %s")
+            params.append(time)
+        if duration is not None:
+            update_fields.append("duration = %s")
+            params.append(duration)
+        if meetingurl is not None:
+            update_fields.append("meetingurl = %s")
+            params.append(meetingurl)
+        if status is not None:
+            update_fields.append("status = %s")
+            params.append(status)
+        if description is not None:
+            update_fields.append("description = %s")
+            params.append(description)
+        
+        if len(params) == 0:
+            return {"success": False, "error": "No fields to update"}
+        
+        params.append(appointmentid)
+        query = f"""
+            UPDATE appointment 
+            SET {', '.join(update_fields)}
+            WHERE appointmentid = %s
+            RETURNING appointmentid, consultantid, customerid, date, time, duration,
+                      meetingurl, status, description, createdat, updatedat
+        """
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, params)
+            result = cur.fetchone()
+            self.conn.commit()
+            
+            if not result:
+                return {"success": False, "error": "Appointment not found"}
+        
+        appointment = {
+            "appointmentid": result[0],
+            "consultantid": result[1],
+            "customerid": result[2],
+            "date": result[3],
+            "time": result[4],
+            "duration": result[5],
+            "meetingurl": result[6],
+            "status": result[7],
+            "description": result[8],
+            "createdat": result[9],
+            "updatedat": result[10]
+        }
+        
+        self._log_info(f"Updated appointment: {appointmentid}")
+        return {"success": True, "data": appointment}
+    
+    def delete_appointment(self, appointmentid: int) -> Dict[str, Any]:
+        """
+        Delete an appointment (hard delete)
+        
+        Args:
+            appointmentid: ID of appointment to delete
+            
+        Returns:
+            Dict with success status
+        """
+        query = "DELETE FROM appointment WHERE appointmentid = %s RETURNING appointmentid"
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, (appointmentid,))
+            result = cur.fetchone()
+            self.conn.commit()
+            
+            if not result:
+                return {"success": False, "error": "Appointment not found"}
+        
+        self._log_info(f"Deleted appointment: {appointmentid}")
+        return {"success": True, "message": "Appointment deleted successfully"}
+
+    # ==================== COMMUNITY PROGRAM CRUD ====================
+    
+    def create_program(
+        self,
+        programname: str,
+        date: str,
+        description: str = None,
+        content: str = None,
+        organizer: str = None,
+        url: str = None,
+        status: str = 'upcoming'
+    ) -> Dict[str, Any]:
+        """
+        Create a new community program
+        
+        Args:
+            programname: Program name
+            date: Program date (YYYY-MM-DD)
+            description: Short description
+            content: Detailed content
+            organizer: Organizer name
+            url: Program URL
+            status: Program status (upcoming/ongoing/completed)
+            
+        Returns:
+            Dict with created program data
+        """
+        query = """
+            INSERT INTO communityprogram 
+            (programname, date, description, content, organizer, url, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING programid, programname, date, description, content,
+                      organizer, url, isdisabled, status, createdat
+        """
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, (
+                programname, date, description, content,
+                organizer, url, status
+            ))
+            result = cur.fetchone()
+            self.conn.commit()
+        
+        program = {
+            "programid": result[0],
+            "programname": result[1],
+            "date": result[2],
+            "description": result[3],
+            "content": result[4],
+            "organizer": result[5],
+            "url": result[6],
+            "isdisabled": result[7],
+            "status": result[8],
+            "createdat": result[9]
+        }
+        
+        self._log_info(f"Created program: {program['programid']}")
+        return {"success": True, "data": program}
+    
+    def update_program(
+        self,
+        programid: int,
+        programname: str = None,
+        date: str = None,
+        description: str = None,
+        content: str = None,
+        organizer: str = None,
+        url: str = None,
+        status: str = None,
+        isdisabled: bool = None
+    ) -> Dict[str, Any]:
+        """
+        Update an existing community program
+        
+        Args:
+            programid: ID of program to update
+            (other params): Fields to update
+            
+        Returns:
+            Dict with updated program data
+        """
+        update_fields = []
+        params = []
+        
+        if programname is not None:
+            update_fields.append("programname = %s")
+            params.append(programname)
+        if date is not None:
+            update_fields.append("date = %s")
+            params.append(date)
+        if description is not None:
+            update_fields.append("description = %s")
+            params.append(description)
+        if content is not None:
+            update_fields.append("content = %s")
+            params.append(content)
+        if organizer is not None:
+            update_fields.append("organizer = %s")
+            params.append(organizer)
+        if url is not None:
+            update_fields.append("url = %s")
+            params.append(url)
+        if status is not None:
+            update_fields.append("status = %s")
+            params.append(status)
+        if isdisabled is not None:
+            update_fields.append("isdisabled = %s")
+            params.append(isdisabled)
+        
+        if not update_fields:
+            return {"success": False, "error": "No fields to update"}
+        
+        params.append(programid)
+        query = f"""
+            UPDATE communityprogram 
+            SET {', '.join(update_fields)}
+            WHERE programid = %s
+            RETURNING programid, programname, date, description, content,
+                      organizer, url, isdisabled, status, createdat
+        """
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, params)
+            result = cur.fetchone()
+            self.conn.commit()
+            
+            if not result:
+                return {"success": False, "error": "Program not found"}
+        
+        program = {
+            "programid": result[0],
+            "programname": result[1],
+            "date": result[2],
+            "description": result[3],
+            "content": result[4],
+            "organizer": result[5],
+            "url": result[6],
+            "isdisabled": result[7],
+            "status": result[8],
+            "createdat": result[9]
+        }
+        
+        self._log_info(f"Updated program: {programid}")
+        return {"success": True, "data": program}
+    
+    def delete_program(self, programid: int) -> Dict[str, Any]:
+        """
+        Soft delete a community program (set isdisabled = true)
+        
+        Args:
+            programid: ID of program to delete
+            
+        Returns:
+            Dict with success status
+        """
+        query = """
+            UPDATE communityprogram 
+            SET isdisabled = true
+            WHERE programid = %s
+            RETURNING programid
+        """
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, (programid,))
+            result = cur.fetchone()
+            self.conn.commit()
+            
+            if not result:
+                return {"success": False, "error": "Program not found"}
+        
+        self._log_info(f"Deleted program: {programid}")
+        return {"success": True, "message": "Program deleted successfully"}

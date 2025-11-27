@@ -17,6 +17,9 @@ const navItems: NavItem[] = [
   { path: '/', icon: '📊', label: 'Overview' },
   { path: '/conversations', icon: '💬', label: 'Conversations' },
   { path: '/analytics', icon: '📈', label: 'Analytics' },
+  { path: '/consultants', icon: '👨‍💼', label: 'Consultants' },
+  { path: '/appointments', icon: '📅', label: 'Appointments' },
+  { path: '/programs', icon: '🎯', label: 'Programs' },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
