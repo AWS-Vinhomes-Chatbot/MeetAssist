@@ -17,12 +17,16 @@ from aws_cdk import (
     aws_events as events,
     aws_events_targets as targets,
     aws_cognito as cognito,
+    aws_ssm as ssm,
     Stack,
     Duration,
     BundlingOptions,
     CfnOutput,
 )
 from constructs import Construct
+
+# SSM Parameter name for API endpoint (shared between stacks)
+SSM_API_ENDPOINT = "/meetassist/admin/api-endpoint"
 
 
 class DashboardStack(Stack):
@@ -272,3 +276,16 @@ class DashboardStack(Stack):
             value=admin_manager_lambda.function_name,
             description="Admin Manager Lambda function name (CRUD operations)",
         )
+
+        # ==================== SSM PARAMETER ====================
+        # Lưu API endpoint vào SSM để FrontendStack có thể đọc
+        ssm.StringParameter(
+            self,
+            "ApiEndpointParam",
+            parameter_name=SSM_API_ENDPOINT,
+            string_value=admin_api.url,
+            description="API Gateway endpoint for Admin Dashboard"
+        )
+        
+        # Export API endpoint để các stack khác có thể dùng
+        self.api_endpoint = admin_api.url

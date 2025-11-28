@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { authService } from './services/auth.service';
 import { Sidebar } from './components/Sidebar';
-import { config, validateConfig } from './aws-exports';
+import { config, validateConfig, loadConfig } from './aws-exports';
 
 // Lazy load pages
 const OverviewPage = React.lazy(() => import('./pages/OverviewPage'));
@@ -16,26 +16,36 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [userEmail, setUserEmail] = useState<string>('');
   const [configValid, setConfigValid] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // Validate configuration
-    const valid = validateConfig();
-    setConfigValid(valid);
+    // Load runtime config first, then validate and init
+    const initApp = async () => {
+      try {
+        await loadConfig();
+        
+        // Validate configuration
+        const valid = validateConfig();
+        setConfigValid(valid);
 
-    // Handle OAuth callback first
-    const handleCallback = async () => {
-      if (globalThis.location.pathname === '/callback') {
-        try {
-          await authService.handleCallback();
-        } catch (error) {
-          console.error('Callback error:', error);
-          alert('Login failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+        // Handle OAuth callback
+        if (globalThis.location.pathname === '/callback') {
+          try {
+            await authService.handleCallback();
+          } catch (error) {
+            console.error('Callback error:', error);
+            alert('Login failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+          }
         }
+        
+        // Check authentication
+        await checkAuth();
+      } finally {
+        setIsLoading(false);
       }
-      // Then check authentication
-      await checkAuth();
     };
-    handleCallback();
+    
+    initApp();
   }, []);
 
   const checkAuth = async () => {
@@ -81,7 +91,7 @@ function App() {
   };
 
   // Loading state
-  if (isAuthenticated === null) {
+  if (isLoading || isAuthenticated === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
@@ -105,7 +115,7 @@ function App() {
           
           {!configValid && !config.demoMode && (
             <div className="mb-4 rounded-lg bg-red-100 dark:bg-red-900/30 p-3 text-center text-sm font-medium text-red-800 dark:text-red-300">
-              ⚠️ Missing AWS configuration. Please set environment variables.
+              ⚠️ Missing AWS configuration. Please deploy with CDK first.
             </div>
           )}
           

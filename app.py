@@ -31,16 +31,11 @@ app = cdk.App()
 
 env = cdk.Environment(region="ap-southeast-1")
 
-# ==================== FRONTEND STACK ====================
-# Deploy FrontendStack để có frontend + Cognito
-frontend_stack = FrontendStack(app, "FrontendStack", env=env)
-
 # ==================== VPC + RDS STACK ====================
 vpc_stack = AppStack(app, "AppStack", env=env)
 
 # ==================== DATABASE INIT STACK ====================
 # Tự động tạo schema + import data từ CSV files trong S3
-# Upload CSV vào s3://bucket-name/data/customer.csv, consultant.csv, ...
 db_init_stack = DatabaseInitStack(
     app, "DatabaseInitStack",
     db_instance=vpc_stack.rds_instance,
@@ -52,8 +47,14 @@ db_init_stack = DatabaseInitStack(
 )
 db_init_stack.add_dependency(vpc_stack)
 
-# ==================== Dashboard Stack ====================
+# ==================== FRONTEND STACK (Cognito + CloudFront) ====================
+# Deploy trước để có user_pool cho DashboardStack
+# api_endpoint sẽ được lấy từ SSM Parameter (do DashboardStack lưu)
+frontend_stack = FrontendStack(app, "FrontendStack", env=env)
+
+# ==================== DASHBOARD STACK (API Gateway + Lambda) ====================
 # Deploy Lambda AdminManager + API Gateway
+# Lưu API endpoint vào SSM Parameter để FrontendStack có thể đọc
 dashboard_stack = DashboardStack(
     app, "DashboardStack",
     vpc=vpc_stack.vpc,
@@ -65,7 +66,7 @@ dashboard_stack = DashboardStack(
     env=env
 )
 dashboard_stack.add_dependency(frontend_stack)
-dashboard_stack.add_dependency(db_init_stack) 
+dashboard_stack.add_dependency(db_init_stack)
 
 # Comment tạm các stack khác
 # data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
