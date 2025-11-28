@@ -1,0 +1,2 @@
+import{j as e}from"./index-DSs7LwEb.js";const a=({title:t,subtitle:s,actions:r})=>e.jsx("header",{className:"border-b bg-white px-6 py-4",children:e.jsxs("div",{className:"flex items-center justify-between",children:[e.jsxs("div",{children:[e.jsx("h1",{className:"text-2xl font-bold text-gray-900",children:t}),s&&e.jsx("p",{className:"mt-1 text-sm text-gray-600",children:s})]}),r&&e.jsx("div",{className:"flex items-center gap-3",children:r})]})});export{a as H};
+//# sourceMappingURL=Header-VXjz6aHN.js.map

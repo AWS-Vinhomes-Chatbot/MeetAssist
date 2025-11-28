@@ -69,12 +69,12 @@ class UserMessengerBedrockStack(Stack):
             resources=["*"],  # Can be restricted to specific verified email identities
         ))
 
-        # 4) Lambda Function
+        # 4) Lambda Function - Chat Handler
         webhook_receiver = lambda_.Function(
             self, "WebhookFunction",
             function_name="MessengerWebhookHandler",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="webhook_handler.lambda_handler",
+            handler="chat_handler.lambda_handler",
             code=lambda_.Code.from_asset(
                 asset_path,
                 bundling=BundlingOptions(
@@ -96,10 +96,32 @@ class UserMessengerBedrockStack(Stack):
                 "FB_APP_ID_PARAM": fb_app_id_param.parameter_name,
                 "FB_APP_SECRET_PARAM": fb_app_secret_param.parameter_name,
                 "FB_PAGE_TOKEN_SECRET_ARN": fb_page_token_secret.secret_arn,
-                "SESSION_TABLE_NAME": session_table.table_name
+                "SESSION_TABLE_NAME": session_table.table_name,
+                "TEXT2SQL_LAMBDA_NAME": "AppStack-TextToSQLFunction",
+                "BEDROCK_REGION": "ap-southeast-1",
+                "CACHE_SIMILARITY_THRESHOLD": "0.8",
+                "MAX_CONTEXT_TURNS": "3"
             },
             log_retention=logs.RetentionDays.ONE_WEEK,
         )
+        
+        # Add Bedrock permissions
+        lambda_role.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=["bedrock:InvokeModel"],
+            resources=[
+                f"arn:aws:bedrock:ap-southeast-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+                f"arn:aws:bedrock:ap-southeast-1::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0",
+                f"arn:aws:bedrock:ap-southeast-1::foundation-model/amazon.titan-embed-text-v1"
+            ],
+        ))
+        
+        # Add Lambda invoke permissions for text2sql
+        lambda_role.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=["lambda:InvokeFunction"],
+            resources=[f"arn:aws:lambda:ap-southeast-1:*:function:AppStack-TextToSQLFunction"],
+        ))
 
         # 5) API Gateway
         messenger_api = apigw.RestApi(

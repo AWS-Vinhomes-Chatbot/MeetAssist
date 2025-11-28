@@ -20,18 +20,23 @@
 
 import aws_cdk as cdk
 
-from cdk_rds_pg_memdb_text_to_sql.app_stack import AppStack
+from cdk_rds_pg_memdb_text_to_sql.vpc_stack import AppStack
 from cdk_rds_pg_memdb_text_to_sql.database_init_stack import DatabaseInitStack
 from cdk_rds_pg_memdb_text_to_sql.data_indexer_stack import DataIndexerStack
+from cdk_rds_pg_memdb_text_to_sql.Webhook_stack import UserMessengerBedrockStack
 from cdk_nag import AwsSolutionsChecks
 
 app = cdk.App()
-env = cdk.Environment(region="us-west-2")
+env = cdk.Environment(region="ap-southeast-1")
 
 app_stack = AppStack(app, "AppStack", env=env)
 db_init_stack = DatabaseInitStack(app, "DatabaseInitStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
                                   security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret, env=env)
 data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
                                       security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret,env=env)
+
+# Webhook stack for Messenger chat handler (outside VPC)
+webhook_stack = UserMessengerBedrockStack(app, "WebhookStack", env=env)
+
 cdk.Aspects.of(app).add(AwsSolutionsChecks(verbose=True))
 app.synth()

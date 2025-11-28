@@ -73,7 +73,7 @@ class AppStack(Stack):
         # self.claude_secret = claude_secret
 
         self.vpc.add_flow_log("FlowLog")
-        self.subnet = self.vpc.private_subnets[0]
+        self.subnet = self.vpc.isolated_subnets[0]
 
         # Create a PostgreSQL DB Instance
         rds_instance = rds.DatabaseInstance(self, "AppDatabaseInstance",
@@ -149,7 +149,7 @@ class AppStack(Stack):
             self, "DynamoDBEndpoint",
             vpc=vpc,
             service=ec2.GatewayVpcEndpointAwsService.DYNAMODB,
-            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),           
+            subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)],           
         )
         # Sử dụng Gateway cho S3 để tiết kiệm chi phí
         s3_endpoint = ec2.GatewayVpcEndpoint(  
@@ -185,10 +185,10 @@ class AppStack(Stack):
         )
 
        
-        athena_endpoint = ec2.InterfaceVpaEndpoint(
+        athena_endpoint = ec2.InterfaceVpcEndpoint(
             self, "AthenaEndpoint",
             vpc=vpc,
-            service=ec2.InterfaceVpaEndpointAwsService.ATHENA,
+            service=ec2.InterfaceVpcEndpointAwsService.ATHENA,
             subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
             private_dns_enabled=True,
             security_groups=[database_sg]

@@ -1,0 +1,2 @@
+import{j as s}from"./index-DSs7LwEb.js";import{H as e}from"./Header-VXjz6aHN.js";import"./react-BIF_SMrh.js";const i=()=>s.jsxs("div",{className:"min-h-screen bg-gray-50",children:[s.jsx(e,{title:"Conversations",subtitle:"View and manage conversation history"}),s.jsx("div",{className:"p-6",children:s.jsx("div",{className:"rounded-lg border bg-white p-6 shadow-sm",children:s.jsx("p",{className:"text-gray-600",children:"Conversations page - Coming soon"})})})]});export{i as default};
+//# sourceMappingURL=ConversationsPage-6oVp3bjI.js.map

@@ -1,0 +1,2 @@
+import{j as s}from"./index-DSs7LwEb.js";import{H as e}from"./Header-VXjz6aHN.js";import"./react-BIF_SMrh.js";const i=()=>s.jsxs("div",{className:"min-h-screen bg-gray-50",children:[s.jsx(e,{title:"Analytics",subtitle:"Analyze chatbot performance and usage"}),s.jsx("div",{className:"p-6",children:s.jsx("div",{className:"rounded-lg border bg-white p-6 shadow-sm",children:s.jsx("p",{className:"text-gray-600",children:"Analytics page - Coming soon"})})})]});export{i as default};
+//# sourceMappingURL=AnalyticsPage-BdAyFm0V.js.map

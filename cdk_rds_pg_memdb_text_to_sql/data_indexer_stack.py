@@ -81,7 +81,7 @@ class DataIndexerStack(Stack):
                         "bash",
                         "-c",
                         "pip install --platform manylinux2014_x86_64 --target /asset-output --implementation cp " +
-                        "--python-version 3.12 --only-binary=:all: --upgrade -r requirements.txt && cp -au . " +
+                        "--python-version 3.12 --only-binary=:all: --upgrade -r requirements.txt && cp -r . " +
                         "/asset-output",
                     ]
                 ),

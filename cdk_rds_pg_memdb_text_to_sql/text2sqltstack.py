@@ -70,7 +70,7 @@ class Text2SQLStack(Stack):
                     iam.PolicyStatement(
                         effect=iam.Effect.ALLOW,
                         actions=["secretsmanager:GetSecretValue"],
-                        resources=[self.readonly_secret.secret_arn]
+                        resources=[readonly_secret.secret_arn]
                     )
                 ]
             )
@@ -95,7 +95,7 @@ class Text2SQLStack(Stack):
             self, "TextToSQLFunction",
             function_name="AppStack-TextToSQLFunction",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="prompt_handler.lambda_handler",
+            handler="text2sql_handler.lambda_handler",
             code=lambda_.Code.from_asset(
                 asset_path,
                 bundling=BundlingOptions(
@@ -105,7 +105,7 @@ class Text2SQLStack(Stack):
                         "bash",
                         "-c",
                         "pip install --platform manylinux2014_x86_64 --target /asset-output --implementation cp " +
-                        "--python-version 3.12 --only-binary=:all: --upgrade -r requirements.txt && cp -au . " +
+                        "--python-version 3.12 --only-binary=:all: --upgrade -r requirements.txt && cp -r . " +
                         "/asset-output",
                     ]
                 )
