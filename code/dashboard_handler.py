@@ -1,8 +1,10 @@
-"""
-Admin Dashboard Lambda Handler
+"""Admin Dashboard Lambda Handler
 
 This handler routes requests to the appropriate service methods.
 All business logic is delegated to DashboardService.
+
+Note: ArchiveData Lambda is triggered by EventBridge Schedule (every 5 minutes)
+to sync RDS data to S3. This decouples CRUD operations from archiving.
 """
 
 import json

@@ -45,97 +45,101 @@ class DashboardStack(Stack):
             os.path.dirname(os.path.abspath(__file__)), "..", "code"
         )
 
-        # ==================== ARCHIVE DATA LAMBDA (COMMENT - CHƯA LÀM) ====================
-        # Lambda để backup data từ RDS sang S3 (chạy định kỳ qua EventBridge)
+        # ==================== ARCHIVE DATA LAMBDA ====================
         # Khi deploy lại project, index.py sẽ đọc data từ S3 và restore vào RDS
-        # archive_lambda_role = iam.Role(
-        #     self,
-        #     "ArchiveDataRole",
-        #     assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-        #     managed_policies=[
-        #         iam.ManagedPolicy.from_aws_managed_policy_name(
-        #             "service-role/AWSLambdaVPCAccessExecutionRole"
-        #         )
-        #     ],
-        # )
+        archive_lambda_role = iam.Role(
+            self,
+            "ArchiveDataRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaVPCAccessExecutionRole"
+                )
+            ],
+        )
 
-        # archive_lambda_role.add_to_policy(
-        #     iam.PolicyStatement(
-        #         actions=["secretsmanager:GetSecretValue"],
-        #         resources=[readonly_secret.secret_arn],
-        #     )
-        # )
+        archive_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[readonly_secret.secret_arn],
+            )
+        )
 
-        # archive_lambda_role.add_to_policy(
-        #     iam.PolicyStatement(
-        #         actions=["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
-        #         resources=[
-        #             data_stored_bucket.bucket_arn,
-        #             f"{data_stored_bucket.bucket_arn}/*",
-        #         ],
-        #     )
-        # )
+        archive_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
+                resources=[
+                    data_stored_bucket.bucket_arn,
+                    f"{data_stored_bucket.bucket_arn}/*",
+                ],
+            )
+        )
 
-        # archive_data_lambda = lambda_.Function(
-        #     self,
-        #     "ArchiveData",
-        #     function_name="DashboardStack-ArchiveData",
-        #     runtime=lambda_.Runtime.PYTHON_3_12,
-        #     handler="archive_handler.lambda_handler",
-        #     role=archive_lambda_role,
-        #     code=lambda_.Code.from_asset(
-        #         lambda_code_path,
-        #         bundling=BundlingOptions(
-        #             image=lambda_.Runtime.PYTHON_3_12.bundling_image,
-        #             command=[
-        #                 "bash",
-        #                 "-c",
-        #                 "pip install --platform manylinux2014_x86_64 --target /asset-output "
-        #                 + "--implementation cp --python-version 3.12 --only-binary=:all: "
-        #                 + "--upgrade -r requirements.txt && cp -r . /asset-output",
-        #             ],
-        #         ),
-        #     ),
-        #     vpc=vpc,
-        #     vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
-        #     security_groups=[security_group],
-        #     timeout=Duration.minutes(15),
-        #     memory_size=1024,
-        #     log_retention=logs.RetentionDays.ONE_WEEK,
-        #     reserved_concurrent_executions=1,
-        #     environment={
-        #         "SECRET_NAME": readonly_secret.secret_name,
-        #         "RDS_HOST": rds_instance.db_instance_endpoint_address,
-        #         "RDS_PORT": str(rds_instance.db_instance_endpoint_port),
-        #         "RDS_DATABASE": "postgres",
-        #         "HISTORY_BUCKET_NAME": data_stored_bucket.bucket_name,
-        #     },
-        # )
+        archive_data_lambda = lambda_.Function(
+            self,
+            "ArchiveData",
+            function_name="DashboardStack-ArchiveData",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="archive_handler.lambda_handler",
+            role=archive_lambda_role,
+            code=lambda_.Code.from_asset(
+                lambda_code_path,
+                bundling=BundlingOptions(
+                    image=lambda_.Runtime.PYTHON_3_12.bundling_image,
+                    command=[
+                        "bash",
+                        "-c",
+                        "pip install --platform manylinux2014_x86_64 --target /asset-output "
+                        + "--implementation cp --python-version 3.12 --only-binary=:all: "
+                        + "--upgrade -r requirements.txt && cp -r . /asset-output",
+                    ],
+                ),
+            ),
+            vpc=vpc,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
+            security_groups=[security_group],
+            timeout=Duration.minutes(15),
+            memory_size=1024,
+            log_retention=logs.RetentionDays.ONE_WEEK,
+            # Removed reserved_concurrent_executions to avoid account limit issues
+            environment={
+                "SECRET_NAME": readonly_secret.secret_name,
+                "RDS_HOST": rds_instance.db_instance_endpoint_address,
+                "RDS_PORT": str(rds_instance.db_instance_endpoint_port),
+                "RDS_DATABASE": "postgres",
+                "BUCKET_NAME": data_stored_bucket.bucket_name,
+                "DATA_PREFIX": "data",
+            },
+        )
 
-        # ==================== EVENTBRIDGE SCHEDULE (COMMENT - CHƯA LÀM) ====================
-        # Chạy Archive Lambda hàng ngày lúc 2 AM UTC để backup data mới từ RDS sang S3
-        # archive_schedule = events.Rule(
-        #     self,
-        #     "DailyArchiveSchedule",
-        #     schedule=events.Schedule.cron(
-        #         minute="0", hour="2", month="*", week_day="*", year="*"
-        #     ),
-        #     description="Daily archive RDS data to S3 at 2 AM UTC",
-        #     enabled=True,
-        # )
+        # ==================== EVENTBRIDGE SCHEDULE RULE ====================
+        # Trigger ArchiveData Lambda every 5 minutes to sync RDS data to S3
+        # Using schedule-based trigger instead of event-based to avoid VPC endpoint requirement
+        # NOTE: Rule is DISABLED by default - enable manually when ready for production:
+        #       aws events enable-rule --name MeetAssist-ArchiveSchedule
+        archive_schedule_rule = events.Rule(
+            self,
+            "ArchiveScheduleRule",
+            rule_name="MeetAssist-ArchiveSchedule",
+            description="Trigger ArchiveData Lambda every 5 minutes to sync RDS data to S3",
+            schedule=events.Schedule.rate(Duration.minutes(5)),
+            enabled=False,  # Disabled by default - invoke manually for testing
+        )
 
-        # archive_schedule.add_target(
-        #     targets.LambdaFunction(
-        #         archive_data_lambda, retry_attempts=2, max_event_age=Duration.hours(1)
-        #     )
-        # )
+        archive_schedule_rule.add_target(
+            targets.LambdaFunction(
+                archive_data_lambda,
+                retry_attempts=2,
+                max_event_age=Duration.hours(1)
+            )
+        )
 
-        # archive_data_lambda.add_permission(
-        #     "AllowEventBridgeInvoke",
-        #     principal=iam.ServicePrincipal("events.amazonaws.com"),
-        #     action="lambda:InvokeFunction",
-        #     source_arn=archive_schedule.rule_arn,
-        # )
+        archive_data_lambda.add_permission(
+            "AllowEventBridgeInvoke",
+            principal=iam.ServicePrincipal("events.amazonaws.com"),
+            action="lambda:InvokeFunction",
+            source_arn=archive_schedule_rule.rule_arn,
+        )
 
         # ==================== ADMIN MANAGER LAMBDA ====================
         admin_lambda_role = iam.Role(
@@ -248,12 +252,19 @@ class DashboardStack(Stack):
             description="API Gateway endpoint for Admin Backend",
         )
 
-        # CfnOutput(
-        #     self,
-        #     "ArchiveLambdaName",
-        #     value=archive_data_lambda.function_name,
-        #     description="Archive Lambda function name (RDS -> S3 backup)",
-        # )
+        CfnOutput(
+            self,
+            "ArchiveLambdaName",
+            value=archive_data_lambda.function_name,
+            description="Archive Lambda function name (RDS -> S3 backup)",
+        )
+
+        CfnOutput(
+            self,
+            "ArchiveScheduleRuleOutput",
+            value=archive_schedule_rule.rule_name,
+            description="EventBridge Schedule Rule (every 5 minutes)",
+        )
 
         CfnOutput(
             self,

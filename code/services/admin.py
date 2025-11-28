@@ -471,29 +471,40 @@ class Admin:
                       specialties, qualifications, joindate, createdat, isdisabled
         """
         
-        with self.conn.cursor() as cur:
-            cur.execute(query, (
-                fullname, email, phonenumber, imageurl, 
-                specialties, qualifications, joindate
-            ))
-            result = cur.fetchone()
-            self.conn.commit()
-        
-        consultant = {
-            "consultantid": result[0],
-            "fullname": result[1],
-            "email": result[2],
-            "phonenumber": result[3],
-            "imageurl": result[4],
-            "specialties": result[5],
-            "qualifications": result[6],
-            "joindate": result[7],
-            "createdat": result[8],
-            "isdisabled": result[9]
-        }
-        
-        self._log_info(f"Created consultant: {consultant['consultantid']}")
-        return {"success": True, "data": consultant}
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(query, (
+                    fullname, email, phonenumber, imageurl, 
+                    specialties, qualifications, joindate
+                ))
+                result = cur.fetchone()
+                self.conn.commit()
+            
+            consultant = {
+                "consultantid": result[0],
+                "fullname": result[1],
+                "email": result[2],
+                "phonenumber": result[3],
+                "imageurl": result[4],
+                "specialties": result[5],
+                "qualifications": result[6],
+                "joindate": result[7],
+                "createdat": result[8],
+                "isdisabled": result[9]
+            }
+            
+            self._log_info(f"Created consultant: {consultant['consultantid']}")
+            return {"success": True, "data": consultant}
+            
+        except Exception as e:
+            self.conn.rollback()
+            error_msg = str(e)
+            # Check for duplicate email error
+            if "consultant_email_key" in error_msg or "duplicate key" in error_msg.lower():
+                self._log_error(f"Duplicate email: {email}")
+                return {"success": False, "error": f"Email '{email}' already exists"}
+            self._log_error(f"Error creating consultant: {error_msg}")
+            return {"success": False, "error": error_msg}
     
     def update_consultant(
         self,
@@ -647,30 +658,45 @@ class Admin:
                       meetingurl, status, description, createdat, updatedat
         """
         
-        with self.conn.cursor() as cur:
-            cur.execute(query, (
-                consultantid, customerid, date, time, duration,
-                meetingurl, status, description
-            ))
-            result = cur.fetchone()
-            self.conn.commit()
-        
-        appointment = {
-            "appointmentid": result[0],
-            "consultantid": result[1],
-            "customerid": result[2],
-            "date": result[3],
-            "time": result[4],
-            "duration": result[5],
-            "meetingurl": result[6],
-            "status": result[7],
-            "description": result[8],
-            "createdat": result[9],
-            "updatedat": result[10]
-        }
-        
-        self._log_info(f"Created appointment: {appointment['appointmentid']}")
-        return {"success": True, "data": appointment}
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(query, (
+                    consultantid, customerid, date, time, duration,
+                    meetingurl, status, description
+                ))
+                result = cur.fetchone()
+                self.conn.commit()
+            
+            appointment = {
+                "appointmentid": result[0],
+                "consultantid": result[1],
+                "customerid": result[2],
+                "date": result[3],
+                "time": result[4],
+                "duration": result[5],
+                "meetingurl": result[6],
+                "status": result[7],
+                "description": result[8],
+                "createdat": result[9],
+                "updatedat": result[10]
+            }
+            
+            self._log_info(f"Created appointment: {appointment['appointmentid']}")
+            return {"success": True, "data": appointment}
+            
+        except Exception as e:
+            self.conn.rollback()
+            error_msg = str(e)
+            # Check for duplicate appointment error
+            if "uq_appointment_datetime" in error_msg.lower() or "duplicate key" in error_msg.lower():
+                self._log_error(f"Duplicate appointment: {date} {time}")
+                return {"success": False, "error": f"Appointment already exists at {date} {time}"}
+            # Check for foreign key errors
+            if "foreign key" in error_msg.lower():
+                self._log_error(f"Invalid consultant or customer ID")
+                return {"success": False, "error": "Invalid consultant or customer ID"}
+            self._log_error(f"Error creating appointment: {error_msg}")
+            return {"success": False, "error": error_msg}
     
     def update_appointment(
         self,
@@ -817,29 +843,36 @@ class Admin:
                       organizer, url, isdisabled, status, createdat
         """
         
-        with self.conn.cursor() as cur:
-            cur.execute(query, (
-                programname, date, description, content,
-                organizer, url, status
-            ))
-            result = cur.fetchone()
-            self.conn.commit()
-        
-        program = {
-            "programid": result[0],
-            "programname": result[1],
-            "date": result[2],
-            "description": result[3],
-            "content": result[4],
-            "organizer": result[5],
-            "url": result[6],
-            "isdisabled": result[7],
-            "status": result[8],
-            "createdat": result[9]
-        }
-        
-        self._log_info(f"Created program: {program['programid']}")
-        return {"success": True, "data": program}
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(query, (
+                    programname, date, description, content,
+                    organizer, url, status
+                ))
+                result = cur.fetchone()
+                self.conn.commit()
+            
+            program = {
+                "programid": result[0],
+                "programname": result[1],
+                "date": result[2],
+                "description": result[3],
+                "content": result[4],
+                "organizer": result[5],
+                "url": result[6],
+                "isdisabled": result[7],
+                "status": result[8],
+                "createdat": result[9]
+            }
+            
+            self._log_info(f"Created program: {program['programid']}")
+            return {"success": True, "data": program}
+            
+        except Exception as e:
+            self.conn.rollback()
+            error_msg = str(e)
+            self._log_error(f"Error creating program: {error_msg}")
+            return {"success": False, "error": error_msg}
     
     def update_program(
         self,
