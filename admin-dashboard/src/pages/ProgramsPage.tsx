@@ -28,7 +28,7 @@ export default function ProgramsPage() {
   const fetchPrograms = async () => {
     try {
       setLoading(true);
-      const params: any = { limit: 100, offset: 0 };
+      const params: Record<string, unknown> = { limit: 100, offset: 0 };
       if (statusFilter) params.status = statusFilter;
       
       const response = await getPrograms(params);
@@ -85,7 +85,7 @@ export default function ProgramsPage() {
   };
 
   const handleDelete = async (programid: number) => {
-    if (!window.confirm('Are you sure you want to delete this program?')) {
+    if (!globalThis.confirm('Are you sure you want to delete this program?')) {
       return;
     }
     try {
@@ -99,29 +99,34 @@ export default function ProgramsPage() {
 
   const getStatusBadge = (status: string) => {
     const statusColors: Record<string, string> = {
-      upcoming: 'bg-blue-100 text-blue-800',
-      ongoing: 'bg-green-100 text-green-800',
-      completed: 'bg-gray-100 text-gray-800'
+      upcoming: 'badge-info',
+      ongoing: 'badge-success',
+      completed: 'badge-neutral'
     };
-    return statusColors[status] || 'bg-gray-100 text-gray-800';
+    return statusColors[status] || 'badge-neutral';
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen">
       <Header 
         title="Quản lý Chương trình Cộng đồng" 
         subtitle="Manage community programs and events"
+        actions={
+          <Button onClick={handleCreate} icon="➕">
+            Add Program
+          </Button>
+        }
       />
 
-      <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-          <div className="text-sm text-gray-600">
-            Total: {programs.length} programs
-          </div>
+      <div className="p-4 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Total: <span className="font-medium text-gray-900 dark:text-white">{programs.length}</span> programs
+          </p>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+            className="input w-full sm:w-auto sm:min-w-[150px]"
           >
             <option value="">All Status</option>
             <option value="upcoming">Upcoming</option>
@@ -129,107 +134,99 @@ export default function ProgramsPage() {
             <option value="completed">Completed</option>
           </select>
         </div>
-        <Button onClick={handleCreate}>
-          + Add Program
-        </Button>
-      </div>
 
-      {loading ? (
-        <div className="text-center py-12">Loading...</div>
-      ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  ID
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Program Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Organizer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Description
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {programs.map((program) => (
-                <tr key={program.programid} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {program.programid}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {program.programname}
-                    </div>
-                    {program.url && (
-                      <a 
-                        href={program.url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:text-blue-800"
-                      >
-                        View Link
-                      </a>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {program.date}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {program.organizer || '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    <div className="max-w-xs truncate">
-                      {program.description || '-'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadge(program.status)}`}>
-                      {program.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(program)}
-                      className="text-blue-600 hover:text-blue-900 mr-4"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(program.programid)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent"></div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-gray-800/50">
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">ID</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Program Name</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden md:table-cell">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden lg:table-cell">Organizer</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden xl:table-cell">Description</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Status</th>
+                    <th className="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-300">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {programs.map((program) => (
+                    <tr key={program.programid} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                        {program.programid}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {program.programname}
+                        </div>
+                        {program.url && (
+                          <a 
+                            href={program.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary-600 dark:text-primary-400 hover:underline"
+                          >
+                            View Link →
+                          </a>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">
+                        {program.date}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden lg:table-cell">
+                        {program.organizer || '-'}
+                      </td>
+                      <td className="px-4 py-3 hidden xl:table-cell">
+                        <div className="max-w-[200px] truncate text-gray-500 dark:text-gray-400">
+                          {program.description || '-'}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`badge ${getStatusBadge(program.status)}`}>
+                          {program.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleEdit(program)}
+                            className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                            title="Edit"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDelete(program.programid)}
+                            className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                            title="Delete"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
 
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={editingProgram ? 'Edit Program' : 'Add New Program'}
+        size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Program Name *
             </label>
             <input
@@ -237,13 +234,13 @@ export default function ProgramsPage() {
               required
               value={formData.programname}
               onChange={(e) => setFormData({ ...formData, programname: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Date *
               </label>
               <input
@@ -251,19 +248,19 @@ export default function ProgramsPage() {
                 required
                 value={formData.date}
                 onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Status *
               </label>
               <select
                 required
                 value={formData.status}
                 onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input"
               >
                 <option value="upcoming">Upcoming</option>
                 <option value="ongoing">Ongoing</option>
@@ -273,19 +270,19 @@ export default function ProgramsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Organizer
             </label>
             <input
               type="text"
               value={formData.organizer}
               onChange={(e) => setFormData({ ...formData, organizer: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Program URL
             </label>
             <input
@@ -293,12 +290,12 @@ export default function ProgramsPage() {
               value={formData.url}
               onChange={(e) => setFormData({ ...formData, url: e.target.value })}
               placeholder="https://..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Description
             </label>
             <textarea
@@ -306,24 +303,24 @@ export default function ProgramsPage() {
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={2}
               maxLength={255}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input resize-none"
             />
-            <p className="text-xs text-gray-500 mt-1">Max 255 characters</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Max 255 characters</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Content (Detailed Information)
             </label>
             <textarea
               value={formData.content}
               onChange={(e) => setFormData({ ...formData, content: e.target.value })}
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input resize-none"
             />
           </div>
 
-          <div className="flex justify-end space-x-3 pt-4">
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button
               type="button"
               variant="secondary"

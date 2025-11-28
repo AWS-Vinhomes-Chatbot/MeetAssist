@@ -40,7 +40,7 @@ export default function AppointmentsPage() {
   const fetchAppointments = async () => {
     try {
       setLoading(true);
-      const params: any = { limit: 100, offset: 0 };
+      const params: Record<string, unknown> = { limit: 100, offset: 0 };
       if (statusFilter) params.status = statusFilter;
       
       const response = await getAppointments(params);
@@ -117,7 +117,7 @@ export default function AppointmentsPage() {
   };
 
   const handleDelete = async (appointmentid: number) => {
-    if (!window.confirm('Are you sure you want to delete this appointment?')) {
+    if (!globalThis.confirm('Are you sure you want to delete this appointment?')) {
       return;
     }
     try {
@@ -131,30 +131,35 @@ export default function AppointmentsPage() {
 
   const getStatusBadge = (status: string) => {
     const statusColors: Record<string, string> = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-blue-100 text-blue-800',
-      completed: 'bg-green-100 text-green-800',
-      cancelled: 'bg-red-100 text-red-800'
+      pending: 'badge-warning',
+      confirmed: 'badge-info',
+      completed: 'badge-success',
+      cancelled: 'badge-error'
     };
-    return statusColors[status] || 'bg-gray-100 text-gray-800';
+    return statusColors[status] || 'badge-neutral';
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen">
       <Header 
         title="Quản lý Lịch hẹn" 
         subtitle="Manage counseling appointments"
+        actions={
+          <Button onClick={handleCreate} icon="➕">
+            Add Appointment
+          </Button>
+        }
       />
 
-      <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-          <div className="text-sm text-gray-600">
-            Total: {appointments.length} appointments
-          </div>
+      <div className="p-4 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Total: <span className="font-medium text-gray-900 dark:text-white">{appointments.length}</span> appointments
+          </p>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+            className="input w-full sm:w-auto sm:min-w-[150px]"
           >
             <option value="">All Status</option>
             <option value="pending">Pending</option>
@@ -163,137 +168,132 @@ export default function AppointmentsPage() {
             <option value="cancelled">Cancelled</option>
           </select>
         </div>
-        <Button onClick={handleCreate}>
-          + Add Appointment
-        </Button>
-      </div>
 
-      {loading ? (
-        <div className="text-center py-12">Loading...</div>
-      ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  ID
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Consultant
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date & Time
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Duration
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {appointments.map((appointment) => {
-                const consultant = consultants.find(c => c.consultantid === appointment.consultantid);
-                const customer = customers.find(c => c.customerid === appointment.customerid);
-                
-                return (
-                  <tr key={appointment.appointmentid} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {appointment.appointmentid}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {customer?.fullname || `Customer #${appointment.customerid}`}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {consultant?.fullname || `Consultant #${appointment.consultantid}`}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {appointment.date} {appointment.time}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {appointment.duration} mins
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadge(appointment.status)}`}>
-                        {appointment.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleEdit(appointment)}
-                        className="text-blue-600 hover:text-blue-900 mr-4"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(appointment.appointmentid)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        Delete
-                      </button>
-                    </td>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent"></div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-gray-800/50">
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">ID</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Customer</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden md:table-cell">Consultant</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Date & Time</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden lg:table-cell">Duration</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Status</th>
+                    <th className="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-300">Actions</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {appointments.map((appointment) => {
+                    const consultant = consultants.find(c => c.consultantid === appointment.consultantid);
+                    const customer = customers.find(c => c.customerid === appointment.customerid);
+                    
+                    return (
+                      <tr key={appointment.appointmentid} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                          {appointment.appointmentid}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                          {customer?.fullname || `Customer #${appointment.customerid}`}
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">
+                          {consultant?.fullname || `Consultant #${appointment.consultantid}`}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                          <div className="text-sm">{appointment.date}</div>
+                          <div className="text-xs text-gray-400 dark:text-gray-500">{appointment.time}</div>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden lg:table-cell">
+                          {appointment.duration} mins
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`badge ${getStatusBadge(appointment.status)}`}>
+                            {appointment.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleEdit(appointment)}
+                              className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                              title="Edit"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => handleDelete(appointment.appointmentid)}
+                              className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                              title="Delete"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
 
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={editingAppointment ? 'Edit Appointment' : 'Add New Appointment'}
+        size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Customer *
-            </label>
-            <select
-              required
-              value={formData.customerid}
-              onChange={(e) => setFormData({ ...formData, customerid: parseInt(e.target.value) })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value={0}>Select Customer</option>
-              {customers.map(customer => (
-                <option key={customer.customerid} value={customer.customerid}>
-                  {customer.fullname} - {customer.email}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Consultant *
-            </label>
-            <select
-              required
-              value={formData.consultantid}
-              onChange={(e) => setFormData({ ...formData, consultantid: parseInt(e.target.value) })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value={0}>Select Consultant</option>
-              {consultants.map(consultant => (
-                <option key={consultant.consultantid} value={consultant.consultantid}>
-                  {consultant.fullname} - {consultant.specialties}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                Customer *
+              </label>
+              <select
+                required
+                value={formData.customerid}
+                onChange={(e) => setFormData({ ...formData, customerid: parseInt(e.target.value) })}
+                className="input"
+              >
+                <option value={0}>Select Customer</option>
+                {customers.map(customer => (
+                  <option key={customer.customerid} value={customer.customerid}>
+                    {customer.fullname}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                Consultant *
+              </label>
+              <select
+                required
+                value={formData.consultantid}
+                onChange={(e) => setFormData({ ...formData, consultantid: parseInt(e.target.value) })}
+                className="input"
+              >
+                <option value={0}>Select Consultant</option>
+                {consultants.map(consultant => (
+                  <option key={consultant.consultantid} value={consultant.consultantid}>
+                    {consultant.fullname}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Date *
               </label>
               <input
@@ -301,12 +301,12 @@ export default function AppointmentsPage() {
                 required
                 value={formData.date}
                 onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Time *
               </label>
               <input
@@ -314,33 +314,33 @@ export default function AppointmentsPage() {
                 required
                 value={formData.time}
                 onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Duration (minutes)
               </label>
               <input
                 type="number"
                 value={formData.duration}
                 onChange={(e) => setFormData({ ...formData, duration: parseInt(e.target.value) })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Status *
               </label>
               <select
                 required
                 value={formData.status}
                 onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input"
               >
                 <option value="pending">Pending</option>
                 <option value="confirmed">Confirmed</option>
@@ -351,7 +351,7 @@ export default function AppointmentsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Meeting URL
             </label>
             <input
@@ -359,23 +359,23 @@ export default function AppointmentsPage() {
               value={formData.meetingurl}
               onChange={(e) => setFormData({ ...formData, meetingurl: e.target.value })}
               placeholder="https://zoom.us/..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Description
             </label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input resize-none"
             />
           </div>
 
-          <div className="flex justify-end space-x-3 pt-4">
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button
               type="button"
               variant="secondary"

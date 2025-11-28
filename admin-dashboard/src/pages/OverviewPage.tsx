@@ -20,7 +20,7 @@ const formatDate = (dateStr: string): string => {
   try {
     // PostgreSQL date format: YYYY-MM-DD or with timestamp
     const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
+    if (Number.isNaN(date.getTime())) {
       // Try parsing as DD/MM/YYYY or other formats
       return dateStr.split('T')[0] || dateStr;
     }
@@ -92,20 +92,20 @@ const OverviewPage: React.FC = () => {
       case 'confirmed':
       case 'completed':
       case 'active':
-        return 'bg-green-100 text-green-800';
+        return 'badge-success';
       case 'pending':
       case 'upcoming':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'badge-warning';
       case 'cancelled':
       case 'inactive':
-        return 'bg-red-100 text-red-800';
+        return 'badge-error';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'badge-neutral';
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       <Header
         title="Overview"
         subtitle="Welcome back! Here's what's happening with your career counseling service."
@@ -116,15 +116,15 @@ const OverviewPage: React.FC = () => {
         }
       />
 
-      <div className="p-6">
+      <div className="p-4 sm:p-6 space-y-6">
         {error && (
-          <div className="mb-6 rounded-lg bg-red-50 p-4 text-red-700">
+          <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4 text-red-700 dark:text-red-300">
             <strong>Error:</strong> {error}
           </div>
         )}
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           <StatCard
             title="Total Customers"
             value={stats?.total_customers?.toString() || '0'}
@@ -154,15 +154,15 @@ const OverviewPage: React.FC = () => {
 
         {/* Appointment Status Distribution */}
         {stats?.appointments_by_status && (
-          <div className="mt-6">
-            <h3 className="mb-4 text-lg font-semibold">Appointment Status Distribution</h3>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <div>
+            <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">Appointment Status Distribution</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {Object.entries(stats.appointments_by_status).map(([status, count]) => (
-                <div key={status} className="rounded-lg border bg-white p-4 shadow-sm">
-                  <div className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${getStatusColor(status)}`}>
+                <div key={status} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 transition-all hover:shadow-md">
+                  <span className={`badge ${getStatusColor(status)}`}>
                     {status}
-                  </div>
-                  <div className="mt-2 text-2xl font-bold">{count}</div>
+                  </span>
+                  <div className="mt-3 text-2xl font-bold text-gray-900 dark:text-white">{count}</div>
                 </div>
               ))}
             </div>
@@ -170,29 +170,31 @@ const OverviewPage: React.FC = () => {
         )}
 
         {/* Recent Data Tables */}
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {/* Recent Appointments */}
-          <div className="rounded-lg border bg-white p-6 shadow-sm">
-            <h3 className="mb-4 text-lg font-semibold">Recent Appointments</h3>
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Appointments</h3>
+            </div>
             {recentAppointments.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Customer</th>
-                      <th className="px-3 py-2 text-left">Consultant</th>
-                      <th className="px-3 py-2 text-left">Date</th>
-                      <th className="px-3 py-2 text-left">Status</th>
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-800/50">
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Customer</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Consultant</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Date</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Status</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {recentAppointments.map((apt) => (
-                      <tr key={apt.appointmentid} className="border-t">
-                        <td className="px-3 py-2">{apt.customer_name}</td>
-                        <td className="px-3 py-2">{apt.consultant_name}</td>
-                        <td className="px-3 py-2">{formatDate(apt.date)}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-block rounded-full px-2 py-1 text-xs ${getStatusColor(apt.status)}`}>
+                      <tr key={apt.appointmentid} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                        <td className="px-4 py-3 text-gray-900 dark:text-gray-100">{apt.customer_name}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{apt.consultant_name}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{formatDate(apt.date)}</td>
+                        <td className="px-4 py-3">
+                          <span className={`badge ${getStatusColor(apt.status)}`}>
                             {apt.status}
                           </span>
                         </td>
@@ -202,36 +204,38 @@ const OverviewPage: React.FC = () => {
                 </table>
               </div>
             ) : (
-              <div className="flex h-32 items-center justify-center text-gray-500">
+              <div className="flex h-32 items-center justify-center text-gray-500 dark:text-gray-400">
                 {loading ? 'Loading...' : 'No appointments found'}
               </div>
             )}
           </div>
           
           {/* Community Programs */}
-          <div className="rounded-lg border bg-white p-6 shadow-sm">
-            <h3 className="mb-4 text-lg font-semibold">Community Programs</h3>
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Community Programs</h3>
+            </div>
             {programs.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Program</th>
-                      <th className="px-3 py-2 text-left">Date</th>
-                      <th className="px-3 py-2 text-left">Participants</th>
-                      <th className="px-3 py-2 text-left">Status</th>
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-800/50">
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Program</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Date</th>
+                      <th className="px-4 py-3 text-center font-semibold text-gray-600 dark:text-gray-300">Participants</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Status</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {programs.map((program) => (
-                      <tr key={program.programid} className="border-t">
-                        <td className="px-3 py-2 font-medium">{program.programname}</td>
-                        <td className="px-3 py-2 text-xs">
+                      <tr key={program.programid} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{program.programname}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
                           {formatDate(program.date)}
                         </td>
-                        <td className="px-3 py-2 text-center">{program.participant_count}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-block rounded-full px-2 py-1 text-xs ${getStatusColor(program.status)}`}>
+                        <td className="px-4 py-3 text-center text-gray-600 dark:text-gray-400">{program.participant_count}</td>
+                        <td className="px-4 py-3">
+                          <span className={`badge ${getStatusColor(program.status)}`}>
                             {program.status}
                           </span>
                         </td>
@@ -241,7 +245,7 @@ const OverviewPage: React.FC = () => {
                 </table>
               </div>
             ) : (
-              <div className="flex h-32 items-center justify-center text-gray-500">
+              <div className="flex h-32 items-center justify-center text-gray-500 dark:text-gray-400">
                 {loading ? 'Loading...' : 'No programs found'}
               </div>
             )}
