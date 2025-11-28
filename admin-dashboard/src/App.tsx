@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { authService } from './services/auth.service';
 import { Sidebar } from './components/Sidebar';
 import { config, validateConfig, loadConfig } from './aws-exports';
+import { Bot, LogIn, Loader2, AlertTriangle } from 'lucide-react';
 
 // Lazy load pages
 const OverviewPage = React.lazy(() => import('./pages/OverviewPage'));
@@ -95,7 +96,7 @@ function App() {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
-          <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-primary-600 border-t-transparent mx-auto"></div>
+          <Loader2 size={48} className="mb-4 animate-spin text-primary-600 mx-auto" />
           <p className="text-gray-600 dark:text-gray-400">Loading Dashboard...</p>
         </div>
       </div>
@@ -108,20 +109,22 @@ function App() {
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-4">
         <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-8 shadow-xl border border-gray-200 dark:border-gray-700">
           {config.demoMode && (
-            <div className="mb-4 rounded-lg bg-orange-100 dark:bg-orange-900/30 p-3 text-center text-sm font-medium text-orange-800 dark:text-orange-300">
-              ⚠️ DEMO MODE - No authentication required
+            <div className="mb-4 rounded-lg bg-orange-100 dark:bg-orange-900/30 p-3 text-center text-sm font-medium text-orange-800 dark:text-orange-300 flex items-center justify-center gap-2">
+              <AlertTriangle size={16} />
+              DEMO MODE - No authentication required
             </div>
           )}
           
           {!configValid && !config.demoMode && (
-            <div className="mb-4 rounded-lg bg-red-100 dark:bg-red-900/30 p-3 text-center text-sm font-medium text-red-800 dark:text-red-300">
-              ⚠️ Missing AWS configuration. Please deploy with CDK first.
+            <div className="mb-4 rounded-lg bg-red-100 dark:bg-red-900/30 p-3 text-center text-sm font-medium text-red-800 dark:text-red-300 flex items-center justify-center gap-2">
+              <AlertTriangle size={16} />
+              Missing AWS configuration. Please deploy with CDK first.
             </div>
           )}
           
           <div className="mb-8 text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-100 dark:bg-primary-900/30 mb-4">
-              <span className="text-3xl">🤖</span>
+              <Bot size={32} className="text-primary-600" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Chatbot Admin</h1>
             <p className="mt-2 text-gray-600 dark:text-gray-400">Manage conversation history and analytics</p>
@@ -129,9 +132,9 @@ function App() {
           
           <button
             onClick={handleLogin}
-            className="w-full rounded-lg bg-primary-600 px-6 py-3 font-semibold text-white transition-all hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 active:scale-[0.98]"
+            className="w-full rounded-lg bg-primary-600 px-6 py-3 font-semibold text-white transition-all hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 active:scale-[0.98] flex items-center justify-center gap-2"
           >
-            <span className="mr-2">🔐</span>
+            <LogIn size={20} />
             {config.demoMode ? 'Enter Demo Mode' : 'Login with Cognito'}
           </button>
           
@@ -151,8 +154,9 @@ function App() {
         
         <main className="flex-1 lg:ml-0 overflow-auto">
           {config.demoMode && (
-            <div className="bg-gradient-to-r from-orange-500 to-red-500 px-4 py-2 text-center text-sm font-medium text-white">
-              ⚠️ DEMO MODE - All data is mocked for demonstration purposes
+            <div className="bg-gradient-to-r from-orange-500 to-red-500 px-4 py-2 text-center text-sm font-medium text-white flex items-center justify-center gap-2">
+              <AlertTriangle size={16} />
+              DEMO MODE - All data is mocked for demonstration purposes
             </div>
           )}
           
@@ -160,7 +164,7 @@ function App() {
             fallback={
               <div className="flex h-full items-center justify-center min-h-[50vh]">
                 <div className="text-center">
-                  <div className="mb-4 h-10 w-10 animate-spin rounded-full border-4 border-primary-600 border-t-transparent mx-auto"></div>
+                  <Loader2 size={40} className="mb-4 animate-spin text-primary-600 mx-auto" />
                   <p className="text-gray-600 dark:text-gray-400">Loading...</p>
                 </div>
               </div>

@@ -2,6 +2,21 @@ import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import clsx from 'clsx';
 import { useTheme } from '../contexts/ThemeContext';
+import {
+  LayoutDashboard,
+  MessageSquare,
+  BarChart3,
+  Users,
+  Calendar,
+  Target,
+  Sun,
+  Moon,
+  LogOut,
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  Menu
+} from 'lucide-react';
 
 interface SidebarProps {
   userEmail: string;
@@ -10,17 +25,17 @@ interface SidebarProps {
 
 interface NavItem {
   path: string;
-  icon: string;
+  icon: React.ReactNode;
   label: string;
 }
 
 const navItems: NavItem[] = [
-  { path: '/', icon: '📊', label: 'Overview' },
-  { path: '/conversations', icon: '💬', label: 'Conversations' },
-  { path: '/analytics', icon: '📈', label: 'Analytics' },
-  { path: '/consultants', icon: '👨‍💼', label: 'Consultants' },
-  { path: '/appointments', icon: '📅', label: 'Appointments' },
-  { path: '/programs', icon: '🎯', label: 'Programs' },
+  { path: '/', icon: <LayoutDashboard size={20} />, label: 'Overview' },
+  { path: '/conversations', icon: <MessageSquare size={20} />, label: 'Conversations' },
+  { path: '/analytics', icon: <BarChart3 size={20} />, label: 'Analytics' },
+  { path: '/consultants', icon: <Users size={20} />, label: 'Consultants' },
+  { path: '/appointments', icon: <Calendar size={20} />, label: 'Appointments' },
+  { path: '/programs', icon: <Target size={20} />, label: 'Programs' },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
@@ -56,7 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-700">
           <div className={clsx('flex items-center gap-3', isCollapsed && 'lg:justify-center lg:w-full')}>
-            <span className="text-2xl">🤖</span>
+            <Bot size={28} className="text-primary-600" />
             {!isCollapsed && (
               <span className="font-bold text-gray-900 dark:text-white text-lg">Admin</span>
             )}
@@ -65,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
             onClick={() => setIsCollapsed(!isCollapsed)}
             className="hidden lg:flex items-center justify-center w-8 h-8 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
           >
-            {isCollapsed ? '→' : '←'}
+            {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
           </button>
         </div>
 
@@ -86,7 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
               }
               title={isCollapsed ? item.label : undefined}
             >
-              <span className="text-xl flex-shrink-0">{item.icon}</span>
+              <span className="flex-shrink-0">{item.icon}</span>
               {!isCollapsed && <span>{item.label}</span>}
             </NavLink>
           ))}
@@ -103,7 +118,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
             )}
             title={getThemeTitle()}
           >
-            <span className="text-xl">{theme === 'dark' ? '☀️' : '🌙'}</span>
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
             {!isCollapsed && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
           </button>
 
@@ -132,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
             )}
             title={isCollapsed ? 'Logout' : undefined}
           >
-            <span className="text-xl">🚪</span>
+            <LogOut size={20} />
             {!isCollapsed && <span>Logout</span>}
           </button>
         </div>
@@ -146,7 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
           !isCollapsed && 'hidden'
         )}
       >
-        ☰
+        <Menu size={24} />
       </button>
     </>
   );
