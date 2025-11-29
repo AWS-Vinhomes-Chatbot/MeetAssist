@@ -347,8 +347,14 @@ class Authenticator:
         
         # Extract message details
         messages = self.message_service.extract_messages(data["data"])
-        message_text = messages.get("text", "")
-        psid = messages.get("psid")
+        if not messages:
+            logger.error("No messages found in event")
+            return {"statusCode": 400, "body": "No messages"}
+        
+        # Get first message from the list
+        msg_data = messages[0]
+        message_text = msg_data.get("text", "") or msg_data.get("payload", "")
+        psid = msg_data.get("psid")
         
         if not psid:
             logger.error("No PSID found in message")

@@ -1,6 +1,5 @@
 from services.authencator_service import Authenticator    
 from services.messenger_service import MessengerService
-from services.cache_service import CacheService
 from services.session_service import SessionService
 from services.bedrock_service import BedrockService
 import logging
@@ -11,7 +10,6 @@ import os
 # Initialize services
 auth = Authenticator()
 mess = MessengerService()
-cache = CacheService()
 session_service = SessionService()
 bedrock_service = BedrockService()
 
@@ -90,7 +88,7 @@ def lambda_handler(event, context):
             logger.info(f"Processing message for {psid}: '{user_question[:50]}...'")
             
             # Step 4: Check cache for similar question
-            cache_hit = cache.search_cache(psid, user_question)
+            cache_hit = session_service.search_cache(psid, user_question)
             
             # Step 5: Route based on cache hit/miss
             if cache_hit:
@@ -151,7 +149,7 @@ def _handle_cache_hit(psid: str, user_question: str, cache_hit: dict) -> str:
         schema_context = cached_metadata.get("schema_context_text", "")
         
         # Get conversation context
-        context = session_service.get_context_for_llm(psid, include_metadata=True)
+        context = session_service.get_context_for_llm(psid)
         
         # Generate response using Bedrock
         response = bedrock_service.get_answer_from_sql_results(
@@ -203,7 +201,12 @@ def _handle_text2sql(psid: str, user_question: str) -> tuple:
         
         if result.get("statusCode") != 200:
             logger.error(f"Text2SQL error: {result}")
-            return "Xin lỗi, không thể truy vấn thông tin lịch hẹn lúc này.", {"error": True}
+            # Extract error response from Text2SQL result
+            error_body = result.get("body", "{}")
+            if isinstance(error_body, str):
+                error_body = json.loads(error_body)
+            error_response = error_body.get("response", "Xin lỗi, không thể truy vấn thông tin lúc này.")
+            return error_response, {"error": True, "detail": error_body.get("error", "")}
         
         # Parse body
         body = result.get("body", "{}")
@@ -214,8 +217,6 @@ def _handle_text2sql(psid: str, user_question: str) -> tuple:
         sql_result = body.get("sql_result", [])
         schema_context = body.get("schema_context_text", "")
         
-        # Calculate row_count from sql_result
-        row_count = len(sql_result) if isinstance(sql_result, list) else 0
         
         # Convert sql_result to string for Bedrock
         sql_result_str = json.dumps(sql_result, ensure_ascii=False, default=str)
@@ -232,7 +233,6 @@ def _handle_text2sql(psid: str, user_question: str) -> tuple:
         metadata = {
             "source": "text2sql",
             "intent": "schedule_type",
-            "row_count": row_count,
             "sql_result": sql_result_str,
             "schema_context_text": schema_context
         }
@@ -241,4 +241,4 @@ def _handle_text2sql(psid: str, user_question: str) -> tuple:
         
     except Exception as e:
         logger.error(f"Error in _handle_text2sql: {e}", exc_info=True)
-        return "Xin lỗi, đã xảy ra lỗi khi xử lý câu hỏi của bạn.", {"error": str(e)}
+        return "Xin lỗi, đã xảy ra lỗi khi xử lý câu hỏi của bạn.", {"error": str(e)}   

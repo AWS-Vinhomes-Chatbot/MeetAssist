@@ -45,14 +45,14 @@ def get_bedrock_client(region: str = None):
     This is reused across Lambda invocations to improve performance.
     
     Args:
-        region: AWS region (default from env or us-east-1)
+        region: AWS region (default from env or ap-northeast-1)
     
     Returns:
         boto3 Bedrock Runtime client instance
     """
     global _bedrock_client
     if _bedrock_client is None:
-        region = region or os.environ.get("BEDROCK_REGION", "ap-southeast-1")
+        region = region or os.environ.get("BEDROCK_REGION", "ap-northeast-1")
         _bedrock_client = boto3.client('bedrock-runtime', region_name=region)
         logger.info(f"Created Bedrock Runtime client for region: {region}")
     return _bedrock_client
@@ -291,7 +291,7 @@ class BedrockService:
         Hãy viết một câu lệnh SQL cho tác vụ sau đây, với tư cách là một quản trị viên CSDL chuyên nghiệp và có ý thức bảo mật cao.
 
         ## Hướng dẫn chung:
-        - Chỉ cho phép INSERT, UPDATE, DELETE trên các bảng/cột liên quan đến lịch hẹn (ví dụ: bảng "Appointment" với cột như "AppointmentID", "Status", "Date", "UserID", "ConsultantID", v.v. – dựa trên schema).
+        - Chỉ cho phép INSERT, UPDATE, DELETE trên các bảng/cột liên quan đến lịch hẹn (ví dụ: bảng appointment với cột như appointmentid, status, date, customerid, consultantid, v.v. – dựa trên schema).
         - Ví dụ: INSERT để đặt lịch mới, DELETE để hủy lịch, UPDATE để thay đổi thông tin lịch (như ngày giờ, trạng thái).
         - Đối với tất cả các bảng/cột khác (không liên quan đến lịch hẹn), CHỈ cho phép SELECT. Từ chối INSERT/UPDATE/DELETE trên chúng. 
         - Không bao giờ truy vấn tất cả các cột (`SELECT *`) từ một bảng; chỉ yêu cầu các cột có liên quan đến câu hỏi.
@@ -308,9 +308,14 @@ class BedrockService:
 
         ## Hướng dẫn Cú pháp PostgreSQL (Rất quan trọng):
         - Chỉ sử dụng cú pháp tương thích với PostgreSQL.
+        - **QUAN TRỌNG VỀ TÊN BẢNG VÀ CỘT**: Sử dụng tên bảng và cột CHÍNH XÁC như trong schema được cung cấp (thường là lowercase).
+          * KHÔNG dùng dấu ngoặc kép cho tên bảng/cột lowercase.
+          * Ví dụ đúng: `SELECT fullname FROM account WHERE accountid = %s`
+          * Ví dụ đúng: `SELECT date, time, status FROM appointment WHERE consultantid = %s`
+          * Ví dụ SAI: `SELECT "FullName" FROM "Account"` (sai vì dùng ngoặc kép và chữ hoa)
         - Đối với các phép tính ngày tháng và tuổi (ví dụ: tính tuổi của tư vấn viên):
           * Dùng `AGE(end_date, start_date)` để lấy khoảng thời gian.
-          * Dùng `DATE_PART('year', AGE(timestamp))` để lấy tuổi (ví dụ: `DATE_PART('year', AGE(a.DateOfBirth))` để lấy tuổi của Account).
+          * Dùng `DATE_PART('year', AGE(timestamp))` để lấy tuổi (ví dụ: `DATE_PART('year', AGE(a.dateofbirth))` để lấy tuổi của Account).
         - Đối với các phép tính tổng hợp và `GROUP BY`:
           * Quy tắc quan trọng: Mọi cột trong `SELECT` không nằm trong hàm tổng hợp (aggregate function) BẮT BUỘC phải nằm trong mệnh đề `GROUP BY`.
           * Khi dùng `CASE` với `GROUP BY`, hãy dùng CTE (subquery) để đặt bí danh (alias) cho biểu thức `CASE`, sau đó `GROUP BY` theo bí danh đó.
@@ -319,26 +324,24 @@ class BedrockService:
             WITH appointments_with_status AS (
               SELECT 
                   CASE 
-                      WHEN "Status" = 'completed' THEN 'Đã hoàn thành'
-                      WHEN "Status" = 'pending' THEN 'Đang chờ'
-                      WHEN "Status" = 'rejected' THEN 'Đã từ chối'
+                      WHEN status = 'completed' THEN 'Đã hoàn thành'
+                      WHEN status = 'pending' THEN 'Đang chờ'
+                      WHEN status = 'rejected' THEN 'Đã từ chối'
                       ELSE 'Khác'
                   END AS trang_thai,
-                  "AppointmentID"
-              FROM "Appointment"
+                  appointmentid
+              FROM appointment
             )
             SELECT 
                 trang_thai, 
-                COUNT("AppointmentID") as so_luong
+                COUNT(appointmentid) as so_luong
             FROM appointments_with_status
             GROUP BY trang_thai
             ```
-        - Lưu ý tên bảng và cột có chữ hoa: Nếu tên bảng hoặc cột trong schema có chữ hoa (ví dụ: "Account", "FullName", "RoleID"), chúng BẮT BUỘC phải được đặt trong dấu ngoặc kép (`""`).
-          * Ví dụ đúng: `SELECT "FullName" FROM "Account" WHERE "AccountID" = %s`
-          * Ví dụ sai: `SELECT FullName FROM Account WHERE AccountID = %s`
 
         ## Định dạng phản hồi:
         Đầu tiên: Phân tích kỹ schema được cung cấp để xác định tất cả các bảng và cột có sẵn.
+        Sử dụng tên bảng/cột CHÍNH XÁC như trong schema (không thay đổi chữ hoa/thường).
         Không tham chiếu bất kỳ bảng hoặc cột nào không tồn tại trong schema này.
         Thứ hai: Xem xét các định dạng dữ liệu thực tế và phân biệt chữ hoa/thường trong các giá trị CSDL.
 
@@ -356,7 +359,7 @@ class BedrockService:
         {question}
 
         Hãy kiểm tra kỹ công việc của bạn để đảm bảo:
-        1. MỌI bảng và cột bạn tham chiếu ĐỀU TỒN TẠI trong schema ở trên (lưu ý dùng dấu `""` cho tên có chữ hoa).
+        1. MỌI bảng và cột bạn tham chiếu ĐỀU TỒN TẠI trong schema ở trên và sử dụng ĐÚNG tên (lowercase, không dấu ngoặc kép).
         2. Số lượng placeholder `%s` KHỚP CHÍNH XÁC với số lượng tham số bạn cung cấp.
         3. Không có lỗ hổng SQL injection.
         4. Xử lý đúng việc so sánh chuỗi Tiếng Việt (dùng `LOWER` hoặc `UPPER`).

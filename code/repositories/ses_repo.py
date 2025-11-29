@@ -21,14 +21,15 @@ def get_ses_client(region: str = None):
     Get or create SES client singleton.
     
     Args:
-        region: AWS region (default from env or ap-southeast-1)
+        region: AWS region (default from SES_REGION env or ap-northeast-1)
     
     Returns:
         boto3 SES client instance
     """
     global _ses_client
     if _ses_client is None:
-        region = region or os.environ.get("AWS_REGION", "ap-southeast-1")
+        # Use SES_REGION for explicit SES region, fallback to AWS_REGION or Tokyo
+        region = region or os.environ.get("SES_REGION") or os.environ.get("AWS_REGION", "ap-northeast-1")
         _ses_client = boto3.client("ses", region_name=region)
         logger.info(f"Created SES client for region: {region}")
     return _ses_client

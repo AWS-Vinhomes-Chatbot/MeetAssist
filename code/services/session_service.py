@@ -1,23 +1,49 @@
 """
-Session Service - Manages user sessions and authentication state.
+Session Service - Manages user sessions, authentication state, and conversation caching.
 
 Responsibilities:
 - Session CRUD operations
 - OTP generation and verification
 - Rate limiting
 - Conversation history
-- Cache management
+- Cache management with embedding-based similarity search
 """
 
 import os
+import json
 import secrets
 import time
 import hmac
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from botocore.exceptions import ClientError
+import numpy as np
 
 logger = logging.getLogger()
+
+
+def _vector_to_string(vector: List[float]) -> str:
+    """
+    Convert vector (list of floats) to JSON string for DynamoDB storage.
+    DynamoDB does not support Python float type, so we store as string.
+    """
+    if vector is None:
+        return None
+    return json.dumps(vector)
+
+
+def _string_to_vector(vector_str: str) -> List[float]:
+    """
+    Convert JSON string back to vector (list of floats) for computation.
+    """
+    if vector_str is None:
+        return None
+    if isinstance(vector_str, list):
+        # Already a list, just ensure floats
+        return [float(x) for x in vector_str]
+    return json.loads(vector_str)
+
+
 # Static JSON template for appointment booking
 APPOINTMENT_TEMPLATE = {
     "customer_name": None,
@@ -30,28 +56,25 @@ APPOINTMENT_TEMPLATE = {
 }
 
 class SessionService:
-    """Service for managing user sessions."""
+    """Service for managing user sessions and conversation caching."""
     
-    def __init__(self, dynamodb_repo=None, messenger_service=None, cache_service=None):
+    def __init__(self, dynamodb_repo=None, messenger_service=None, embed_service=None, similarity_threshold: float = None):
         """
-        Initialize SessionService.
+        Initialize SessionService with integrated caching.
         
         Args:
             dynamodb_repo: DynamoDBRepository instance. If None, creates default instance.
             messenger_service: MessengerService instance. If None, creates default instance.
+            embed_service: EmbeddingService instance for vector search. If None, uses singleton.
+            similarity_threshold: Min cosine similarity for cache hit (default 0.8)
         
         Example:
-            # Use default repo (auto-creates from env vars)
+            # Use default instances (auto-creates from env vars)
             service = SessionService()
             
             # Inject custom repo (for testing)
             mock_repo = MagicMock()
             service = SessionService(dynamodb_repo=mock_repo)
-            
-            # Use specific table
-            from repositories.dynamodb_repo import DynamoDBRepository
-            repo = DynamoDBRepository(table_name="custom-table")
-            service = SessionService(dynamodb_repo=repo)
         """
         # ✅ Dependency injection with lazy loading
         if dynamodb_repo is None:
@@ -65,13 +88,20 @@ class SessionService:
             messenger_service = MessengerService()
         
         self.messenger_service = messenger_service
-        if cache_service is None:
-            from services.cache_service import CacheService
-            cache_service = CacheService()
         
-        self.cache_service = cache_service
+        # Embedding service for cache similarity search
+        if embed_service is None:
+            from services.embed import EmbeddingService
+            embed_service = EmbeddingService()  # Uses singleton client
+        self.embed_service = embed_service
+        
+        # Cache settings
+        self.similarity_threshold = similarity_threshold or float(os.environ.get("CACHE_SIMILARITY_THRESHOLD", "0.8"))
+        
         # ✅ Load context settings from environment
         self.MAX_CONTEXT_TURNS = int(os.environ.get("MAX_CONTEXT_TURNS", "3"))
+        
+        logger.info(f"SessionService initialized: similarity_threshold={self.similarity_threshold}")
     
     def get_session(self, psid: str) -> Optional[Dict[str, Any]]:
         """
@@ -84,13 +114,125 @@ class SessionService:
             Session dict or None
         """
         try:
-            response = self.dynamodb_repo.get_item(Key={"psid": psid})
-            return response.get("Item")
+            response = self.dynamodb_repo.get_item(key={"psid": psid})
+            return response
         except ClientError as e:
             logger.error(f"Error getting session for {psid}: {e}")
             return None
     
+    # ========== CACHE METHODS (integrated from CacheService) ==========
     
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """
+        Calculate cosine similarity between two vectors.
+        
+        Args:
+            vec1: First vector
+            vec2: Second vector
+        
+        Returns:
+            Cosine similarity score (0 to 1)
+        """
+        try:
+            v1 = np.array(vec1)
+            v2 = np.array(vec2)
+            
+            dot_product = np.dot(v1, v2)
+            norm1 = np.linalg.norm(v1)
+            norm2 = np.linalg.norm(v2)
+            
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            
+            similarity = dot_product / (norm1 * norm2)
+            return max(0.0, min(1.0, float(similarity)))
+        
+        except Exception as e:
+            logger.error(f"Error calculating cosine similarity: {e}")
+            return 0.0
+    
+    def search_cache(self, psid: str, user_question: str) -> Optional[Dict[str, Any]]:
+        """
+        Search for similar questions in the user's conversation_context.
+        
+        Flow:
+        1. Get session by psid
+        2. Embed the user question
+        3. Compare with cached turn vectors in conversation_context
+        4. Return best match if similarity >= threshold
+        
+        Args:
+            psid: User's PSID to search in their session
+            user_question: Question to search for
+            
+        Returns:
+            Cached turn data if hit, None if no cache hit
+        """
+        try:
+            # Get session by psid
+            session = self.get_session(psid)
+            if not session:
+                logger.info(f"No session found for {psid}, cache miss")
+                return None
+            
+            conversation_context = session.get("conversation_context", [])
+            if not conversation_context:
+                logger.info(f"No conversation_context for {psid}, cache miss")
+                return None
+            
+            # Embed current question
+            query_vector = self.embed_service.get_embedding(user_question)
+            
+            best_match = None
+            best_score = 0.0
+            
+            for turn in conversation_context:
+                # Skip turns without vector embedding
+                cached_vector = turn.get("vector")
+                if not cached_vector:
+                    continue
+                
+                # Convert string back to vector for computation
+                cached_vector = _string_to_vector(cached_vector)
+                
+                # Calculate similarity
+                similarity = self._cosine_similarity(query_vector, cached_vector)
+                
+                if similarity >= self.similarity_threshold and similarity > best_score:
+                    best_score = similarity
+                    best_match = {
+                        "user": turn.get("user"),
+                        "assistant": turn.get("assistant"),
+                        "metadata": turn.get("metadata", {}),
+                        "vector_score": round(similarity, 3)
+                    }
+            
+            if best_match:
+                logger.info(f"Cache HIT for {psid}: '{user_question[:50]}...' with score {best_score:.3f}")
+                return best_match
+            else:
+                logger.info(f"Cache MISS for {psid}: '{user_question[:50]}...'")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error searching cache for {psid}: {e}")
+            return None
+    
+    def get_embedding_vector(self, user_msg: str) -> Optional[List[float]]:
+        """
+        Get vector embedding for a user message.
+        
+        Args:
+            user_msg: User's message to embed
+            
+        Returns:
+            Vector embedding list or None if failed
+        """
+        try:
+            return self.embed_service.get_embedding(user_msg)
+        except Exception as e:
+            logger.warning(f"Failed to embed question: {e}")
+            return None
     
     def add_message_to_history(self, event: Dict[str, Any], assistant_msg: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
@@ -121,7 +263,7 @@ class SessionService:
             msg_data = messages[0]
             psid = msg_data.get("psid")
             user_msg = msg_data.get("text", "") or msg_data.get("payload", "")
-            vector =  self.cache_service.get_cache_data(psid, user_msg)
+            vector = self.get_embedding_vector(user_msg)
             if not psid:
                 logger.error("No PSID found in message")
                 return False
@@ -132,9 +274,15 @@ class SessionService:
                 return False
             intent = session.get("current_intent","unknown")
             history = session.get("conversation_context", [])
+            
+            # Ensure all existing vectors are stored as strings (fix legacy data)
+            for turn in history:
+                if turn.get("vector") and isinstance(turn["vector"], list):
+                    turn["vector"] = _vector_to_string(turn["vector"])
+            
             history.append({
                 "user": user_msg,
-                "vector": vector,
+                "vector": _vector_to_string(vector),  # Store as JSON string
                 "assistant": assistant_msg,
                 "intent": intent,
                 "metadata": metadata or {},
@@ -146,7 +294,7 @@ class SessionService:
                 history = history[-self.MAX_CONTEXT_TURNS:]
                 logger.info(f"Trimmed context for {psid}, kept last {self.MAX_CONTEXT_TURNS} turns")
             
-            self.dynamodb_repo.update_item(psid, {
+            self.dynamodb_repo.update_item(key={"psid": psid}, updates={
                 "conversation_context": history
             })
             return True
@@ -175,7 +323,7 @@ class SessionService:
                         "appointment_info": APPOINTMENT_TEMPLATE.copy(),
                         "updated_at": int(time.time())
                         }
-            self.dynamodb_repo.put_item(Item=session)
+            self.dynamodb_repo.put_item(item=session)
             return True
         except ClientError as e:
             logger.error(f"Error putting session: {e}")
@@ -193,7 +341,7 @@ class SessionService:
             True if successful
         """
         try:
-            self.dynamodb_repo.delete_item(Key={"psid": psid})
+            self.dynamodb_repo.delete_item(key={"psid": psid})
             return True
         except ClientError as e:
             logger.error(f"Error deleting session for {psid}: {e}")
@@ -211,12 +359,14 @@ class SessionService:
         """
         try:
             # Requires GSI on email field
+            from boto3.dynamodb.conditions import Key
             response = self.dynamodb_repo.query(
-                IndexName="email-index",  # Adjust to your GSI name
-                KeyConditionExpression="email = :email",
-                ExpressionAttributeValues={":email": email}
+                key_condition_expression=Key("email").eq(email),
+                expression_attribute_values={
+                    ":email": email
+                }
             )
-            return response.get("Items", [])
+            return response or []
         except ClientError as e:
             logger.error(f"Error querying sessions by email: {e}")
             return []
@@ -349,22 +499,16 @@ class SessionService:
         Get formatted context string for LLM prompt from session's conversation_context.
         
         Reads conversation_context from session table and formats as string with turns.
-        Can include metadata for cache hit scenarios in chat_handler.
         
         Args:
             psid: User ID
-            for_cache: If True, include metadata (intent, source, etc.) in context
         
         Returns:
             Formatted context string with each turn on separate lines
             
-        Example output (include_metadata=False):
+        Example output:
             Turn 1: User: Xin chào | Assistant: Chào bạn
             Turn 2: User: Lịch hẹn hôm nay | Assistant: Bạn có 2 lịch hẹn...
-            
-        Example output (include_metadata=True):
-            Turn 1 [intent: consultation, source: bedrock]: User: Xin chào | Assistant: Chào bạn
-            Turn 2 [intent: schedule_type, source: text2sql, row_count: 2]: User: Lịch hẹn hôm nay | Assistant: Bạn có 2 lịch hẹn...
         """
         try:
             # Get session from DynamoDB
@@ -385,12 +529,8 @@ class SessionService:
                 user_msg = turn.get("user", "")
                 assistant_msg = turn.get("assistant", "")
                 context_lines.append(f"Turn {i}: User: {user_msg} | Assistant: {assistant_msg}")
+            
             return "\n".join(context_lines)
-            #  context cho LLM schedule không cần metadata 
-            # vì schema bị giới hạn bởi question hiện tại user
-                
-            
-            
         
         except Exception as e:
             logger.error(f"Error getting context for LLM: {e}")
