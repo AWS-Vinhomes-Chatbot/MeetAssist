@@ -294,6 +294,7 @@ def handler(event, context):
         )
         
         # Ensure config is generated AFTER static files are deployed
+        # This prevents BucketDeployment from overwriting the config
         config_generator_cr.node.add_dependency(bucket_deployment)
 
         # ==================== OUTPUTS ====================

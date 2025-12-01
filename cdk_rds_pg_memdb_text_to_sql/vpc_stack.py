@@ -139,18 +139,17 @@ class AppStack(Stack):
         self.security_group = database_sg
         self.rds_instance.connections.allow_default_port_from(database_sg)
 
-        # lần đầu deploy AppStack thì phải tạo S3 bucket bằng CLI
-        # aws s3 mb s3://meetassist-data-<account-id>-ap-southeast-1 --region ap-southeast-1
-
-        # Sử dụng bucket_name cố định để có thể import lại nếu bucket đã tồn tại
+        # Tạo S3 bucket để lưu trữ archived data với tên unique theo region
         data_bucket_name = f"meetassist-data-{Stack.of(self).account}-{Stack.of(self).region}"
         
-        # Import bucket nếu đã tồn tại, hoặc tạo mới nếu chưa có
-        # Lưu ý: Khi deploy lần đầu, bucket sẽ được tạo
-        # Khi deploy lại sau khi destroy stack, bucket đã tồn tại sẽ được import
-        self.data_stored_bucket = s3.Bucket.from_bucket_name(
+        self.data_stored_bucket = s3.Bucket(
             self, "DataStoredBucket",
-            bucket_name=data_bucket_name
+            bucket_name=data_bucket_name,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            versioned=False,
+            removal_policy=RemovalPolicy.RETAIN,  # Giữ lại bucket khi xóa stack
+            enforce_ssl=True
         )
 
 

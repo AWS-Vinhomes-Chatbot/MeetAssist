@@ -106,10 +106,8 @@ TABLE_IMPORT_ORDER = [
     "customer",           # Không có FK dependency
     "consultant",         # Không có FK dependency  
     "consultantschedule", # FK -> Consultant
-    "communityprogram",   # Không có FK dependency
     "appointment",        # FK -> Consultant, Customer
     "appointmentfeedback",# FK -> Appointment
-    "programparticipant", # FK -> CommunityProgram, Customer
 ]
 
 # Mapping từ tên file CSV (lowercase) sang tên table thực tế trong DB
@@ -117,10 +115,8 @@ TABLE_NAME_MAPPING = {
     "customer": "customer",
     "consultant": "consultant",
     "consultantschedule": "consultantschedule",
-    "communityprogram": "communityprogram",
     "appointment": "appointment",
     "appointmentfeedback": "appointmentfeedback",
-    "programparticipant": "programparticipant",
 }
 
 
@@ -190,9 +186,7 @@ def import_csv_to_table(conn, bucket_name, s3_key, table_name):
             "consultant": ["consultantid"],
             "consultantschedule": ["scheduleid"],
             "appointment": ["appointmentid"],
-            "communityprogram": ["programid"],
             "appointmentfeedback": [],  # appointmentid là PK nhưng không phải IDENTITY
-            "programparticipant": [],   # composite PK, không có IDENTITY
         }
         
         identity_cols_for_table = pk_identity_columns.get(table_name.lower(), [])

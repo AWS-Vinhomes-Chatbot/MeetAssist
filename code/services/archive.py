@@ -49,20 +49,10 @@ class ArchiveService:
             "csv_file": "AppointmentFeedback.csv",
             "order_by": "appointmentid"
         },
-        "communityprogram": {
-            "db_table": "communityprogram",
-            "csv_file": "CommunityProgram.csv",
-            "order_by": "programid"
-        },
         "consultantschedule": {
             "db_table": "consultantschedule",
             "csv_file": "ConsultantSchedule.csv",
             "order_by": "scheduleid"
-        },
-        "programparticipant": {
-            "db_table": "programparticipant",
-            "csv_file": "ProgramParticipant.csv",
-            "order_by": "programid, customerid"
         }
     }
     
