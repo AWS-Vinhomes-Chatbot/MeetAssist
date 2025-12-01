@@ -200,53 +200,8 @@ class FrontendStack(Stack):
         config_generator_lambda = lambda_.Function(
             self, "ConfigGenerator",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="index.handler",
-            code=lambda_.Code.from_inline("""
-import json
-import boto3
-import cfnresponse
-
-def handler(event, context):
-    try:
-        if event['RequestType'] == 'Delete':
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-            return
-            
-        props = event['ResourceProperties']
-        ssm = boto3.client('ssm')
-        s3 = boto3.client('s3')
-        
-        # Đọc API endpoint từ SSM (có thể chưa tồn tại lần deploy đầu)
-        try:
-            api_endpoint = ssm.get_parameter(Name=props['SsmApiEndpoint'])['Parameter']['Value']
-            # Remove trailing slash
-            api_endpoint = api_endpoint.rstrip('/')
-        except ssm.exceptions.ParameterNotFound:
-            api_endpoint = "https://placeholder.execute-api.ap-southeast-1.amazonaws.com/prod"
-        
-        config = {
-            "region": props['Region'],
-            "cognitoUserPoolId": props['CognitoUserPoolId'],
-            "cognitoClientId": props['CognitoClientId'],
-            "cognitoDomain": props['CognitoDomain'],
-            "cloudFrontUrl": props['CloudFrontUrl'],
-            "apiEndpoint": api_endpoint
-        }
-        
-        # Upload config.json to S3
-        s3.put_object(
-            Bucket=props['BucketName'],
-            Key='config.json',
-            Body=json.dumps(config, indent=2),
-            ContentType='application/json',
-            CacheControl='no-cache, no-store, must-revalidate'
-        )
-        
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {"ConfigJson": json.dumps(config)})
-    except Exception as e:
-        print(f"Error: {e}")
-        cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
-"""),
+            handler="generate_config.handler",
+            code=lambda_.Code.from_asset(custom_resource_path),
             timeout=Duration.seconds(30),
             description="Generate config.json for frontend from SSM parameters"
         )
