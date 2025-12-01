@@ -125,19 +125,6 @@ export interface Appointment {
   consultant_email?: string;
 }
 
-export interface CommunityProgram {
-  programid: number;
-  programname: string;
-  date: string;
-  description?: string;
-  content?: string;
-  organizer?: string;
-  url?: string;
-  isdisabled?: boolean;
-  status: 'upcoming' | 'ongoing' | 'completed';
-  createdat?: string;
-}
-
 export interface Customer {
   customerid: number;
   fullname: string;

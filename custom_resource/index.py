@@ -97,33 +97,6 @@ CREATE TABLE IF NOT EXISTS AppointmentFeedback (
     CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (AppointmentID) REFERENCES Appointment(AppointmentID) ON DELETE CASCADE
 );
-
--- Bảng Chương trình cộng đồng
-CREATE TABLE IF NOT EXISTS CommunityProgram (
-    ProgramID INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    ProgramName VARCHAR(100) NOT NULL,
-    Date DATE NOT NULL,
-    Description VARCHAR(255),
-    Content TEXT,
-    Organizer VARCHAR(100),
-    Url VARCHAR(300),
-    IsDisabled BOOLEAN NOT NULL DEFAULT false,
-    Status VARCHAR(20) NOT NULL DEFAULT 'upcoming',
-    CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT CHK_ProgramStatus CHECK (Status IN ('upcoming', 'ongoing', 'completed'))
-);
-
--- Bảng Người tham gia chương trình cộng đồng
-CREATE TABLE IF NOT EXISTS ProgramParticipant (
-    ProgramID INT NOT NULL,
-    CustomerID INT NOT NULL,
-    RegisteredTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    Status VARCHAR(20) NOT NULL DEFAULT 'registered',
-    FOREIGN KEY (ProgramID) REFERENCES CommunityProgram(ProgramID) ON DELETE CASCADE,
-    FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID) ON DELETE CASCADE,
-    CONSTRAINT PK_ProgramParticipant PRIMARY KEY (ProgramID, CustomerID),
-    CONSTRAINT CHK_ParticipantStatus CHECK (Status IN ('registered', 'attended', 'cancelled'))
-);
 """
 
 # ============================================

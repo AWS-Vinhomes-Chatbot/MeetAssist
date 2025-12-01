@@ -192,46 +192,6 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
             )
             return success_response(data)
         
-        elif action == 'get_programs':
-            data = service.get_programs(
-                limit=body.get('limit', 100),
-                offset=body.get('offset', 0),
-                status=body.get('status')
-            )
-            return success_response(data)
-        
-        elif action == 'create_program':
-            data = service.create_program(
-                programname=body.get('programname'),
-                date=body.get('date'),
-                description=body.get('description'),
-                content=body.get('content'),
-                organizer=body.get('organizer'),
-                url=body.get('url'),
-                status=body.get('status', 'upcoming')
-            )
-            return success_response(data)
-        
-        elif action == 'update_program':
-            data = service.update_program(
-                programid=body.get('programid'),
-                programname=body.get('programname'),
-                date=body.get('date'),
-                description=body.get('description'),
-                content=body.get('content'),
-                organizer=body.get('organizer'),
-                url=body.get('url'),
-                status=body.get('status'),
-                isdisabled=body.get('isdisabled')
-            )
-            return success_response(data)
-        
-        elif action == 'delete_program':
-            data = service.delete_program(
-                programid=body.get('programid')
-            )
-            return success_response(data)
-        
         elif action == 'get_tables':
             data = service.get_tables()
             return success_response(data)

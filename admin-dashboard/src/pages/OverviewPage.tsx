@@ -1,18 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Header } from '../components/Header';
 import { Button } from '../components/Button';
-import { getOverviewStats, getAppointments, getPrograms } from '../services/api.service';
+import { getOverviewStats, getAppointments } from '../services/api.service';
 import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
   PieChart,
   Pie,
   Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   Legend,
@@ -35,7 +28,6 @@ interface OverviewStats {
   total_customers: number;
   total_consultants: number;
   total_appointments: number;
-  total_programs: number;
   appointments_by_status: Record<string, number>;
   average_rating: number;
   total_feedbacks: number;
@@ -64,24 +56,7 @@ interface Appointment {
   status: string;
 }
 
-interface Program {
-  programid: number;
-  programname: string;
-  date: string;
-  status: string;
-  participant_count: number;
-}
-
 // Chart colors
-const COLORS = {
-  primary: '#3b82f6',
-  secondary: '#8b5cf6',
-  success: '#10b981',
-  warning: '#f59e0b',
-  danger: '#ef4444',
-  info: '#06b6d4',
-};
-
 const PIE_COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#06b6d4'];
 
 // Stat card with icon
@@ -131,22 +106,19 @@ const OverviewPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<OverviewStats | null>(null);
   const [recentAppointments, setRecentAppointments] = useState<Appointment[]>([]);
-  const [programs, setPrograms] = useState<Program[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const [statsResponse, appointmentsResponse, programsResponse] = await Promise.all([
+      const [statsResponse, appointmentsResponse] = await Promise.all([
         getOverviewStats(),
         getAppointments({ limit: 5 }),
-        getPrograms({ limit: 5 }),
       ]);
 
       setStats(statsResponse);
       setRecentAppointments(appointmentsResponse.appointments || []);
-      setPrograms(programsResponse.programs || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
       console.error('Error fetching overview data:', err);
@@ -166,24 +138,6 @@ const OverviewPage: React.FC = () => {
         value: value as number,
       }))
     : [];
-
-  // Weekly trends data
-  const weeklyTrendData = [
-    { date: 'T2', Appointments: 12, Customers: 8 },
-    { date: 'T3', Appointments: 18, Customers: 15 },
-    { date: 'T4', Appointments: 15, Customers: 12 },
-    { date: 'T5', Appointments: 22, Customers: 18 },
-    { date: 'T6', Appointments: 28, Customers: 25 },
-    { date: 'T7', Appointments: 35, Customers: 30 },
-    { date: 'CN', Appointments: 20, Customers: 15 },
-  ];
-
-  // Programs participation data
-  const programParticipationData = programs.map((p, index) => ({
-    name: p.programname.length > 15 ? p.programname.substring(0, 15) + '...' : p.programname,
-    participants: p.participant_count || Math.floor(Math.random() * 50) + 10,
-    fill: Object.values(COLORS)[index % Object.values(COLORS).length],
-  }));
 
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -217,12 +171,6 @@ const OverviewPage: React.FC = () => {
     padding: '12px 16px',
   };
 
-  const tooltipLabelStyle = {
-    color: isDark ? '#f1f5f9' : '#1e293b',
-    fontWeight: 600,
-    marginBottom: '4px',
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
       <Header
@@ -252,8 +200,6 @@ const OverviewPage: React.FC = () => {
             value={stats?.total_customers || 0}
             icon={Users}
             color="bg-gradient-to-br from-blue-500 to-blue-600"
-            change="+12% tuần này"
-            changeType="positive"
           />
           <StatCardWithIcon
             title="Tư vấn viên"
@@ -266,8 +212,6 @@ const OverviewPage: React.FC = () => {
             value={stats?.total_appointments || 0}
             icon={CalendarCheck}
             color="bg-gradient-to-br from-amber-500 to-orange-500"
-            change="+8% tuần này"
-            changeType="positive"
           />
           <StatCardWithIcon
             title="Đánh giá TB"
@@ -279,70 +223,7 @@ const OverviewPage: React.FC = () => {
         </div>
 
         {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Weekly Trends Area Chart */}
-          <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Xu hướng hoạt động</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400">7 ngày gần nhất</p>
-              </div>
-              <div className="flex items-center gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                  <span className="text-slate-600 dark:text-slate-400">Lịch hẹn</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-                  <span className="text-slate-600 dark:text-slate-400">Khách hàng</span>
-                </div>
-              </div>
-            </div>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={weeklyTrendData}>
-                <defs>
-                  <linearGradient id="colorAppointments" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorCustomers" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={COLORS.success} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={COLORS.success} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
-                />
-                <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
-                <Area
-                  type="monotone"
-                  dataKey="Appointments"
-                  stroke={COLORS.primary}
-                  strokeWidth={2.5}
-                  fill="url(#colorAppointments)"
-                  name="Lịch hẹn"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="Customers"
-                  stroke={COLORS.success}
-                  strokeWidth={2.5}
-                  fill="url(#colorCustomers)"
-                  name="Khách hàng"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Appointment Status Pie Chart */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Trạng thái lịch hẹn</h3>
@@ -381,45 +262,8 @@ const OverviewPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Bottom Row */}
+        {/* Bottom Row - Quick Stats */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Program Participation Bar Chart */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Chương trình</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Số lượng tham gia</p>
-            {programParticipationData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={programParticipationData} layout="vertical" barCategoryGap="25%">
-                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} horizontal={true} vertical={false} />
-                  <XAxis
-                    type="number"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
-                    width={100}
-                  />
-                  <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} cursor={{ fill: isDark ? '#1e293b' : '#f1f5f9' }} />
-                  <Bar dataKey="participants" radius={[0, 8, 8, 0]} name="Người tham gia">
-                    {programParticipationData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-[280px] text-slate-400">
-                Chưa có dữ liệu chương trình
-              </div>
-            )}
-          </div>
-
           {/* Quick Stats */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6">Thống kê nhanh</h3>
@@ -480,87 +324,43 @@ const OverviewPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Recent Data Tables */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Recent Appointments */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Lịch hẹn gần đây</h3>
-            {recentAppointments.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-700">
-                      <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Khách hàng</th>
-                      <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Tư vấn viên</th>
-                      <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Ngày</th>
-                      <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Trạng thái</th>
+        {/* Recent Appointments - Full Width */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Lịch hẹn gần đây</h3>
+          {recentAppointments.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700">
+                    <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Khách hàng</th>
+                    <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Tư vấn viên</th>
+                    <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Ngày</th>
+                    <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {recentAppointments.map((apt) => (
+                    <tr key={apt.appointmentid} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                      <td className="py-3 text-slate-900 dark:text-slate-100 font-medium">{apt.customer_name}</td>
+                      <td className="py-3 text-slate-600 dark:text-slate-400">{apt.consultant_name}</td>
+                      <td className="py-3 text-slate-600 dark:text-slate-400">{formatDate(apt.date)}</td>
+                      <td className="py-3">
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(apt.status)}`}>
+                          {apt.status}
+                        </span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                    {recentAppointments.map((apt) => (
-                      <tr key={apt.appointmentid} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                        <td className="py-3 text-slate-900 dark:text-slate-100 font-medium">{apt.customer_name}</td>
-                        <td className="py-3 text-slate-600 dark:text-slate-400">{apt.consultant_name}</td>
-                        <td className="py-3 text-slate-600 dark:text-slate-400">{formatDate(apt.date)}</td>
-                        <td className="py-3">
-                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(apt.status)}`}>
-                            {apt.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="flex h-32 items-center justify-center">
-                <p className="text-slate-500 dark:text-slate-400">
-                  {loading ? 'Đang tải...' : 'Chưa có lịch hẹn'}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Community Programs */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Chương trình cộng đồng</h3>
-            {programs.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-700">
-                      <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Chương trình</th>
-                      <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Ngày</th>
-                      <th className="pb-3 text-center font-semibold text-slate-600 dark:text-slate-300">Tham gia</th>
-                      <th className="pb-3 text-left font-semibold text-slate-600 dark:text-slate-300">Trạng thái</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                    {programs.map((program) => (
-                      <tr key={program.programid} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                        <td className="py-3 font-medium text-slate-900 dark:text-slate-100 max-w-[150px] truncate">
-                          {program.programname}
-                        </td>
-                        <td className="py-3 text-slate-600 dark:text-slate-400 text-xs">{formatDate(program.date)}</td>
-                        <td className="py-3 text-center text-slate-600 dark:text-slate-400">{program.participant_count}</td>
-                        <td className="py-3">
-                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(program.status)}`}>
-                            {program.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="flex h-32 items-center justify-center">
-                <p className="text-slate-500 dark:text-slate-400">
-                  {loading ? 'Đang tải...' : 'Chưa có chương trình'}
-                </p>
-              </div>
-            )}
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="flex h-32 items-center justify-center">
+              <p className="text-slate-500 dark:text-slate-400">
+                {loading ? 'Đang tải...' : 'Chưa có lịch hẹn'}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

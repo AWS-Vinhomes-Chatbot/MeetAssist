@@ -173,24 +173,6 @@ export async function getAppointments(options?: { limit?: number; offset?: numbe
   return response;
 }
 
-// ==================== COMMUNITY PROGRAMS ====================
-
-/**
- * Get community programs list
- */
-export async function getPrograms(options?: { limit?: number; offset?: number; status?: string }): Promise<any> {
-  const response = await apiService.post('/admin/execute-sql', {
-    action: 'get_programs',
-    ...options
-  });
-  
-  if (!response.success) {
-    throw new Error(response.error || 'Failed to get programs');
-  }
-  
-  return response;
-}
-
 // ==================== DATABASE ADMIN FUNCTIONS ====================
 
 /**
@@ -371,74 +353,6 @@ export async function deleteAppointment(appointmentid: number): Promise<any> {
   
   if (!response.success) {
     throw new Error(response.error || 'Failed to delete appointment');
-  }
-  
-  return response;
-}
-
-// ==================== COMMUNITY PROGRAM CRUD ====================
-
-/**
- * Create a new community program
- */
-export async function createProgram(data: {
-  programname: string;
-  date: string;
-  description?: string;
-  content?: string;
-  organizer?: string;
-  url?: string;
-  status?: string;
-}): Promise<any> {
-  const response = await apiService.post('/admin/execute-sql', {
-    action: 'create_program',
-    ...data
-  });
-  
-  if (!response.success) {
-    throw new Error(response.error || 'Failed to create program');
-  }
-  
-  return response;
-}
-
-/**
- * Update an existing community program
- */
-export async function updateProgram(programid: number, data: {
-  programname?: string;
-  date?: string;
-  description?: string;
-  content?: string;
-  organizer?: string;
-  url?: string;
-  status?: string;
-  isdisabled?: boolean;
-}): Promise<any> {
-  const response = await apiService.post('/admin/execute-sql', {
-    action: 'update_program',
-    programid,
-    ...data
-  });
-  
-  if (!response.success) {
-    throw new Error(response.error || 'Failed to update program');
-  }
-  
-  return response;
-}
-
-/**
- * Delete a community program (soft delete)
- */
-export async function deleteProgram(programid: number): Promise<any> {
-  const response = await apiService.post('/admin/execute-sql', {
-    action: 'delete_program',
-    programid
-  });
-  
-  if (!response.success) {
-    throw new Error(response.error || 'Failed to delete program');
   }
   
   return response;

@@ -8,7 +8,6 @@ import {
   BarChart3,
   Users,
   Calendar,
-  Target,
   Sun,
   Moon,
   LogOut,
@@ -35,7 +34,6 @@ const navItems: NavItem[] = [
   { path: '/analytics', icon: <BarChart3 size={20} />, label: 'Analytics' },
   { path: '/consultants', icon: <Users size={20} />, label: 'Consultants' },
   { path: '/appointments', icon: <Calendar size={20} />, label: 'Appointments' },
-  { path: '/programs', icon: <Target size={20} />, label: 'Programs' },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {

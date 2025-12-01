@@ -65,13 +65,6 @@ class Admin:
             stats['pending_appointments'] = status_counts.get('pending', 0)
             stats['completed_appointments'] = status_counts.get('completed', 0)
             
-            # Programs
-            cur.execute("SELECT COUNT(*) FROM communityprogram WHERE status = 'upcoming' AND isdisabled = false")
-            stats['active_programs'] = cur.fetchone()[0]
-            
-            cur.execute("SELECT COUNT(*) FROM communityprogram WHERE isdisabled = false")
-            stats['total_programs'] = cur.fetchone()[0]
-            
             # Average rating
             cur.execute("SELECT AVG(rating) FROM appointmentfeedback")
             avg_rating = cur.fetchone()[0]
@@ -84,9 +77,9 @@ class Admin:
             """)
             stats['recent_appointments'] = cur.fetchone()[0]
             
-            # Total participants
-            cur.execute("SELECT COUNT(*) FROM programparticipant")
-            stats['total_participants'] = cur.fetchone()[0]
+            # Total feedbacks
+            cur.execute("SELECT COUNT(*) FROM appointmentfeedback")
+            stats['total_feedbacks'] = cur.fetchone()[0]
         
         self._log_info(f"Overview stats retrieved: {stats}")
         return stats
@@ -250,65 +243,6 @@ class Admin:
         
         return {
             "appointments": appointments,
-            "total": total,
-            "limit": limit,
-            "offset": offset
-        }
-
-    # ==================== PROGRAMS ====================
-    
-    def get_programs(
-        self, 
-        limit: int = 100, 
-        offset: int = 0, 
-        status: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Get community programs with optional status filter
-        
-        Args:
-            limit: Max number of records to return
-            offset: Number of records to skip
-            status: Filter by status (upcoming, ongoing, completed)
-            
-        Returns:
-            Dict with programs list and pagination info
-        """
-        query = """
-            SELECT programid, programname, date, description, content,
-                   organizer, url, isdisabled, status, createdat,
-                   (SELECT COUNT(*) FROM programparticipant pp 
-                    WHERE pp.programid = cp.programid) as participant_count
-            FROM communityprogram cp
-            WHERE isdisabled = false
-        """
-        params = []
-        
-        if status:
-            query += " AND status = %s"
-            params.append(status)
-        
-        query += " ORDER BY date DESC LIMIT %s OFFSET %s"
-        params.extend([limit, offset])
-        
-        with self.conn.cursor() as cur:
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            columns = [desc[0] for desc in cur.description]
-            
-            count_query = "SELECT COUNT(*) FROM communityprogram WHERE isdisabled = false"
-            if status:
-                count_query += " AND status = %s"
-                cur.execute(count_query, [status])
-            else:
-                cur.execute(count_query)
-            total = cur.fetchone()[0]
-        
-        programs = [dict(zip(columns, row)) for row in rows]
-        self._log_info(f"Retrieved {len(programs)} programs")
-        
-        return {
-            "programs": programs,
             "total": total,
             "limit": limit,
             "offset": offset
@@ -807,183 +741,3 @@ class Admin:
         
         self._log_info(f"Deleted appointment: {appointmentid}")
         return {"success": True, "message": "Appointment deleted successfully"}
-
-    # ==================== COMMUNITY PROGRAM CRUD ====================
-    
-    def create_program(
-        self,
-        programname: str,
-        date: str,
-        description: str = None,
-        content: str = None,
-        organizer: str = None,
-        url: str = None,
-        status: str = 'upcoming'
-    ) -> Dict[str, Any]:
-        """
-        Create a new community program
-        
-        Args:
-            programname: Program name
-            date: Program date (YYYY-MM-DD)
-            description: Short description
-            content: Detailed content
-            organizer: Organizer name
-            url: Program URL
-            status: Program status (upcoming/ongoing/completed)
-            
-        Returns:
-            Dict with created program data
-        """
-        query = """
-            INSERT INTO communityprogram 
-            (programname, date, description, content, organizer, url, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING programid, programname, date, description, content,
-                      organizer, url, isdisabled, status, createdat
-        """
-        
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute(query, (
-                    programname, date, description, content,
-                    organizer, url, status
-                ))
-                result = cur.fetchone()
-                self.conn.commit()
-            
-            program = {
-                "programid": result[0],
-                "programname": result[1],
-                "date": result[2],
-                "description": result[3],
-                "content": result[4],
-                "organizer": result[5],
-                "url": result[6],
-                "isdisabled": result[7],
-                "status": result[8],
-                "createdat": result[9]
-            }
-            
-            self._log_info(f"Created program: {program['programid']}")
-            return {"success": True, "data": program}
-            
-        except Exception as e:
-            self.conn.rollback()
-            error_msg = str(e)
-            self._log_error(f"Error creating program: {error_msg}")
-            return {"success": False, "error": error_msg}
-    
-    def update_program(
-        self,
-        programid: int,
-        programname: str = None,
-        date: str = None,
-        description: str = None,
-        content: str = None,
-        organizer: str = None,
-        url: str = None,
-        status: str = None,
-        isdisabled: bool = None
-    ) -> Dict[str, Any]:
-        """
-        Update an existing community program
-        
-        Args:
-            programid: ID of program to update
-            (other params): Fields to update
-            
-        Returns:
-            Dict with updated program data
-        """
-        update_fields = []
-        params = []
-        
-        if programname is not None:
-            update_fields.append("programname = %s")
-            params.append(programname)
-        if date is not None:
-            update_fields.append("date = %s")
-            params.append(date)
-        if description is not None:
-            update_fields.append("description = %s")
-            params.append(description)
-        if content is not None:
-            update_fields.append("content = %s")
-            params.append(content)
-        if organizer is not None:
-            update_fields.append("organizer = %s")
-            params.append(organizer)
-        if url is not None:
-            update_fields.append("url = %s")
-            params.append(url)
-        if status is not None:
-            update_fields.append("status = %s")
-            params.append(status)
-        if isdisabled is not None:
-            update_fields.append("isdisabled = %s")
-            params.append(isdisabled)
-        
-        if not update_fields:
-            return {"success": False, "error": "No fields to update"}
-        
-        params.append(programid)
-        query = f"""
-            UPDATE communityprogram 
-            SET {', '.join(update_fields)}
-            WHERE programid = %s
-            RETURNING programid, programname, date, description, content,
-                      organizer, url, isdisabled, status, createdat
-        """
-        
-        with self.conn.cursor() as cur:
-            cur.execute(query, params)
-            result = cur.fetchone()
-            self.conn.commit()
-            
-            if not result:
-                return {"success": False, "error": "Program not found"}
-        
-        program = {
-            "programid": result[0],
-            "programname": result[1],
-            "date": result[2],
-            "description": result[3],
-            "content": result[4],
-            "organizer": result[5],
-            "url": result[6],
-            "isdisabled": result[7],
-            "status": result[8],
-            "createdat": result[9]
-        }
-        
-        self._log_info(f"Updated program: {programid}")
-        return {"success": True, "data": program}
-    
-    def delete_program(self, programid: int) -> Dict[str, Any]:
-        """
-        Soft delete a community program (set isdisabled = true)
-        
-        Args:
-            programid: ID of program to delete
-            
-        Returns:
-            Dict with success status
-        """
-        query = """
-            UPDATE communityprogram 
-            SET isdisabled = true
-            WHERE programid = %s
-            RETURNING programid
-        """
-        
-        with self.conn.cursor() as cur:
-            cur.execute(query, (programid,))
-            result = cur.fetchone()
-            self.conn.commit()
-            
-            if not result:
-                return {"success": False, "error": "Program not found"}
-        
-        self._log_info(f"Deleted program: {programid}")
-        return {"success": True, "message": "Program deleted successfully"}
