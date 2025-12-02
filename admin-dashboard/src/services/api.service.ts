@@ -358,4 +358,136 @@ export async function deleteAppointment(appointmentid: number): Promise<any> {
   return response;
 }
 
+// ==================== CONSULTANT SCHEDULE ====================
+
+/**
+ * Get consultant schedules
+ */
+export async function getConsultantSchedules(options?: {
+  limit?: number;
+  offset?: number;
+  consultant_id?: number;
+  date_from?: string;
+  date_to?: string;
+  is_available?: boolean;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'get_consultant_schedules',
+    ...options
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get consultant schedules');
+  }
+  
+  return response;
+}
+
+/**
+ * Get schedule by consultant ID
+ */
+export async function getScheduleByConsultant(
+  consultant_id: number,
+  options?: { date_from?: string; date_to?: string }
+): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'get_schedule_by_consultant',
+    consultant_id,
+    ...options
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get consultant schedule');
+  }
+  
+  return response;
+}
+
+/**
+ * Create a new schedule slot for a consultant
+ */
+export async function createConsultantSchedule(data: {
+  consultant_id: number;
+  date: string;
+  start_time: string;
+  end_time: string;
+  is_available?: boolean;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'create_consultant_schedule',
+    ...data
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to create schedule');
+  }
+  
+  return response;
+}
+
+/**
+ * Update an existing schedule slot
+ */
+export async function updateConsultantSchedule(
+  schedule_id: number,
+  data: {
+    date?: string;
+    start_time?: string;
+    end_time?: string;
+    is_available?: boolean;
+  }
+): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'update_consultant_schedule',
+    schedule_id,
+    ...data
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to update schedule');
+  }
+  
+  return response;
+}
+
+/**
+ * Delete a schedule slot
+ */
+export async function deleteConsultantSchedule(schedule_id: number): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'delete_consultant_schedule',
+    schedule_id
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to delete schedule');
+  }
+  
+  return response;
+}
+
+/**
+ * Generate schedule slots automatically for a consultant
+ */
+export async function generateConsultantSchedule(data: {
+  consultant_id: number;
+  date_from: string;
+  date_to: string;
+  work_start?: string;
+  work_end?: string;
+  slot_duration?: number;
+  exclude_weekends?: boolean;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'generate_consultant_schedule',
+    ...data
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to generate schedule');
+  }
+  
+  return response;
+}
+
 export default apiService;

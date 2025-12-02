@@ -135,3 +135,14 @@ export interface Customer {
   isdisabled?: boolean;
   notes?: string;
 }
+
+export interface ConsultantSchedule {
+  scheduleid: number;
+  consultantid: number;
+  date: string;
+  starttime: string;
+  endtime: string;
+  isavailable: boolean;
+  consultant_name?: string;
+  consultant_email?: string;
+}

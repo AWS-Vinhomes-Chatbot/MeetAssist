@@ -155,8 +155,20 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
             data = service.get_appointments(
                 limit=body.get('limit', 100),
                 offset=body.get('offset', 0),
-                status=body.get('status')
+                status=body.get('status'),
+                consultant_id=body.get('consultant_id'),
+                customer_id=body.get('customer_id'),
+                date_from=body.get('date_from'),
+                date_to=body.get('date_to'),
+                search=body.get('search')
             )
+            return success_response(data)
+        
+        elif action == 'get_appointment_by_id':
+            appointmentid = body.get('appointmentid')
+            if not appointmentid:
+                return error_response("Missing 'appointmentid' in request body", 400)
+            data = service.get_appointment_by_id(appointmentid=appointmentid)
             return success_response(data)
         
         elif action == 'create_appointment':
@@ -189,6 +201,74 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
         elif action == 'delete_appointment':
             data = service.delete_appointment(
                 appointmentid=body.get('appointmentid')
+            )
+            return success_response(data)
+        
+        # ==================== CONSULTANT SCHEDULE ====================
+        
+        elif action == 'get_consultant_schedules':
+            data = service.get_consultant_schedules(
+                limit=body.get('limit', 100),
+                offset=body.get('offset', 0),
+                consultant_id=body.get('consultant_id'),
+                date_from=body.get('date_from'),
+                date_to=body.get('date_to'),
+                is_available=body.get('is_available')
+            )
+            return success_response(data)
+        
+        elif action == 'get_schedule_by_consultant':
+            consultant_id = body.get('consultant_id')
+            if not consultant_id:
+                return error_response("Missing 'consultant_id' in request body", 400)
+            data = service.get_schedule_by_consultant(
+                consultant_id=consultant_id,
+                date_from=body.get('date_from'),
+                date_to=body.get('date_to')
+            )
+            return success_response(data)
+        
+        elif action == 'create_consultant_schedule':
+            data = service.create_consultant_schedule(
+                consultant_id=body.get('consultant_id'),
+                date=body.get('date'),
+                start_time=body.get('start_time'),
+                end_time=body.get('end_time'),
+                is_available=body.get('is_available', True)
+            )
+            return success_response(data)
+        
+        elif action == 'update_consultant_schedule':
+            data = service.update_consultant_schedule(
+                schedule_id=body.get('schedule_id'),
+                date=body.get('date'),
+                start_time=body.get('start_time'),
+                end_time=body.get('end_time'),
+                is_available=body.get('is_available')
+            )
+            return success_response(data)
+        
+        elif action == 'delete_consultant_schedule':
+            schedule_id = body.get('schedule_id')
+            if not schedule_id:
+                return error_response("Missing 'schedule_id' in request body", 400)
+            data = service.delete_consultant_schedule(schedule_id=schedule_id)
+            return success_response(data)
+        
+        elif action == 'generate_consultant_schedule':
+            consultant_id = body.get('consultant_id')
+            date_from = body.get('date_from')
+            date_to = body.get('date_to')
+            if not consultant_id or not date_from or not date_to:
+                return error_response("Missing required fields: consultant_id, date_from, date_to", 400)
+            data = service.generate_consultant_schedule(
+                consultant_id=consultant_id,
+                date_from=date_from,
+                date_to=date_to,
+                work_start=body.get('work_start', '09:00'),
+                work_end=body.get('work_end', '18:00'),
+                slot_duration=body.get('slot_duration', 60),
+                exclude_weekends=body.get('exclude_weekends', True)
             )
             return success_response(data)
         
