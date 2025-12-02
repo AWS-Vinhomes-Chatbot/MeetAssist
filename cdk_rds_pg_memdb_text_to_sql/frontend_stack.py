@@ -13,28 +13,17 @@ from aws_cdk import (
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
     aws_cognito as cognito,
-    aws_ec2 as ec2,
     aws_lambda as lambda_,
-    aws_apigateway as apigw,
-    aws_secretsmanager as sm,
-    aws_rds as rds,
-    aws_glue as glue,
     aws_logs as logs,
-    aws_events as events,
-    aws_events_targets as targets,
-    aws_ssm as ssm,
+    custom_resources as cr,
     CustomResource,
-    Fn,
     Stack,
     Duration,
-    BundlingOptions,
     CfnOutput,
     RemovalPolicy
 )
 from constructs import Construct
 
-# SSM Parameter name for API endpoint (shared between stacks)
-SSM_API_ENDPOINT = "/meetassist/admin/api-endpoint"
 
 class FrontendStack(Stack):
 
@@ -42,45 +31,20 @@ class FrontendStack(Stack):
             self,
             scope: Construct,
             construct_id: str,
-            vpc: ec2.IVpc = None,
-            security_group: ec2.ISecurityGroup = None,
-            data_stored_bucket: s3.IBucket = None,
-            readonly_secret: sm.ISecret = None,
-            rds_instance: rds.IDatabaseInstance = None,
+            user_pool: cognito.IUserPool,
+            cognito_domain_url: str,  # Nhận domain URL dạng string
+            api_endpoint: str = None,  # Nhận từ DashboardStack
             **kwargs,
     ) -> None:
-        super().__init__(scope, construct_id, description="Admin Dashboard Frontend - React SPA with CloudFront + Cognito Authentication", **kwargs)
+        super().__init__(scope, construct_id, description="Admin Dashboard Frontend - React SPA with CloudFront", **kwargs)
         
         # Trỏ đến dist folder đã build sẵn
         frontend_asset_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "..", "admin-dashboard", "dist"
         )
         
-        # ==================== COGNITO USER POOL ====================
-        user_pool = cognito.UserPool(
-            self, "AdminUserPool",
-            user_pool_name="MeetAssist-AdminPool",
-            self_sign_up_enabled=False,
-            sign_in_aliases=cognito.SignInAliases(email=True),
-            auto_verify=cognito.AutoVerifiedAttrs(email=True),
-            password_policy=cognito.PasswordPolicy(
-                min_length=8,
-                require_lowercase=True,
-                require_uppercase=True,
-                require_digits=True,
-                require_symbols=True
-            ),
-            removal_policy=RemovalPolicy.DESTROY
-        )
-
-        user_pool_domain = user_pool.add_domain(
-            "CognitoDomain",
-            cognito_domain=cognito.CognitoDomainOptions(
-                domain_prefix=f"meetassist-admin-{Stack.of(self).account}"
-            )
-        )
-
         # ==================== S3 + CLOUDFRONT ====================
+        # Tạo CloudFront TRƯỚC để có domain cho Cognito callback URLs
         frontend_bucket = s3.Bucket(
             self, "AdminFrontendBucket",
             removal_policy=RemovalPolicy.DESTROY,
@@ -129,73 +93,40 @@ class FrontendStack(Stack):
                 ),
             ]
         )
-        
+
         # ==================== COGNITO APP CLIENT ====================
-        # Tạo Cognito client SAU KHI đã có CloudFront distribution
-        user_pool_client = user_pool.add_client(
-            "AdminAppClient",
-            o_auth=cognito.OAuthSettings(
-                flows=cognito.OAuthFlows(
-                    authorization_code_grant=True,
-                    implicit_code_grant=False
-                ),
-                scopes=[
-                    cognito.OAuthScope.OPENID,
-                    cognito.OAuthScope.EMAIL,
-                    cognito.OAuthScope.PROFILE
-                ],
-                callback_urls=[
-                    "http://localhost:3000/callback"  # Placeholder - sẽ được update bởi Custom Resource
-                ],
-                logout_urls=[
-                    "http://localhost:3000/"
-                ]
-            ),
-            supported_identity_providers=[
-                cognito.UserPoolClientIdentityProvider.COGNITO
+        # Tạo Cognito client trong FrontendStack (không dùng user_pool.add_client để tránh cyclic dependency)
+        # Dùng CfnUserPoolClient để tạo client trong stack này
+        # Lưu ý: CDK dùng callback_ur_ls (không phải callback_urls) do cách convert từ CloudFormation
+        user_pool_client = cognito.CfnUserPoolClient(
+            self, "AdminAppClient",
+            user_pool_id=user_pool.user_pool_id,
+            client_name="MeetAssist-AdminClient",
+            generate_secret=False,
+            allowed_o_auth_flows=["code"],
+            allowed_o_auth_flows_user_pool_client=True,
+            allowed_o_auth_scopes=["openid", "email", "profile"],
+            callback_ur_ls=[
+                f"https://{distribution.distribution_domain_name}/callback",
+                "http://localhost:5173/callback"  # Local development
             ],
-            generate_secret=False
+            logout_ur_ls=[
+                f"https://{distribution.distribution_domain_name}",
+                "http://localhost:5173"
+            ],
+            supported_identity_providers=["COGNITO"],
+            explicit_auth_flows=[
+                "ALLOW_REFRESH_TOKEN_AUTH",
+                "ALLOW_USER_SRP_AUTH"
+            ]
         )
 
-        # ==================== CUSTOM RESOURCE ====================
-        # Tự động update Cognito callback URLs với CloudFront domain
+        # ==================== GENERATE CONFIG.JSON ====================
+        # Tạo config.json với thông tin Cognito + API endpoint
+        # API endpoint được truyền trực tiếp từ DashboardStack
         custom_resource_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "..", "custom_resource"
         )
-        
-        update_cognito_lambda = lambda_.Function(
-            self, "UpdateCognitoCallback",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="update_cognito_callback.handler",
-            code=lambda_.Code.from_asset(custom_resource_path),
-            timeout=Duration.seconds(60),
-            description="Update Cognito User Pool Client callback URLs with CloudFront domain"
-        )
-        
-        update_cognito_lambda.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["cognito-idp:UpdateUserPoolClient"],
-                resources=[user_pool.user_pool_arn]
-            )
-        )
-        
-        update_cognito_cr = CustomResource(
-            self, "UpdateCognitoCallbackResource",
-            service_token=update_cognito_lambda.function_arn,
-            properties={
-                "UserPoolId": user_pool.user_pool_id,
-                "ClientId": user_pool_client.user_pool_client_id,
-                "CloudFrontDomain": distribution.distribution_domain_name
-            }
-        )
-        
-        # Đảm bảo Custom Resource chạy SAU khi CloudFront và Cognito client đã tạo xong
-        update_cognito_cr.node.add_dependency(distribution)
-        update_cognito_cr.node.add_dependency(user_pool_client)
-        
-        # ==================== GENERATE CONFIG.JSON ====================
-        # Tự động tạo config.json với thông tin Cognito + API endpoint
-        # Sử dụng Custom Resource Lambda để đọc SSM và tạo config
         
         config_generator_lambda = lambda_.Function(
             self, "ConfigGenerator",
@@ -203,16 +134,10 @@ class FrontendStack(Stack):
             handler="generate_config.handler",
             code=lambda_.Code.from_asset(custom_resource_path),
             timeout=Duration.seconds(30),
-            description="Generate config.json for frontend from SSM parameters"
+            description="Generate config.json for frontend"
         )
         
-        # Grant permissions
-        config_generator_lambda.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["ssm:GetParameter"],
-                resources=[f"arn:aws:ssm:{self.region}:{self.account}:parameter{SSM_API_ENDPOINT}"]
-            )
-        )
+        # Grant permissions - chỉ cần S3, không cần SSM nữa
         config_generator_lambda.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["s3:PutObject"],
@@ -220,20 +145,26 @@ class FrontendStack(Stack):
             )
         )
         
+        # Sử dụng cr.Provider để wrap Lambda
+        # Provider sẽ tự động xử lý cfnresponse, Lambda chỉ cần return dict
+        config_generator_provider = cr.Provider(
+            self, "ConfigGeneratorProvider",
+            on_event_handler=config_generator_lambda
+        )
+        
         # Custom Resource để generate config
+        # API endpoint được truyền trực tiếp, không cần đọc SSM
         config_generator_cr = CustomResource(
             self, "ConfigGeneratorResource",
-            service_token=config_generator_lambda.function_arn,
+            service_token=config_generator_provider.service_token,
             properties={
                 "Region": self.region,
                 "CognitoUserPoolId": user_pool.user_pool_id,
-                "CognitoClientId": user_pool_client.user_pool_client_id,
-                "CognitoDomain": f"{user_pool_domain.domain_name}.auth.{self.region}.amazoncognito.com",
+                "CognitoClientId": user_pool_client.ref,  # Dùng .ref cho CfnUserPoolClient
+                "CognitoDomain": cognito_domain_url,  # Nhận từ AuthStack
                 "CloudFrontUrl": f"https://{distribution.distribution_domain_name}",
                 "BucketName": frontend_bucket.bucket_name,
-                "SsmApiEndpoint": SSM_API_ENDPOINT,
-                # Force update when redeploying
-                "Timestamp": str(hash(f"{user_pool.user_pool_id}{distribution.distribution_domain_name}"))
+                "ApiEndpoint": api_endpoint if api_endpoint else "https://placeholder.execute-api.ap-southeast-1.amazonaws.com/prod",
             }
         )
         
@@ -266,21 +197,9 @@ class FrontendStack(Stack):
         )
 
         CfnOutput(
-            self, "CognitoUserPoolId",
-            value=user_pool.user_pool_id,
-            description="Cognito User Pool ID"
-        )
-
-        CfnOutput(
             self, "CognitoAppClientId",
-            value=user_pool_client.user_pool_client_id,
+            value=user_pool_client.ref,  # Dùng .ref cho CfnUserPoolClient
             description="Cognito App Client ID"
-        )
-
-        CfnOutput(
-            self, "CognitoDomain",
-            value=f"https://{user_pool_domain.domain_name}.auth.{self.region}.amazoncognito.com",
-            description="Cognito Hosted UI Domain"
         )
 
         CfnOutput(
@@ -288,10 +207,3 @@ class FrontendStack(Stack):
             value=self.region,
             description="AWS Region"
         )
-
-        # ==================== EXPOSE PROPERTIES ====================
-        self.user_pool = user_pool
-
-        # ==================== COMMENT TẠM - CẦN VPC/RDS ====================
-        # Các phần này cần AppStack (VPC, RDS, S3 history bucket, secrets)
-        # Sẽ uncomment khi deploy full stack

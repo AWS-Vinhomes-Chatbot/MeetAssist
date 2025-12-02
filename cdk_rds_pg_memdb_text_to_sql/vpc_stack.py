@@ -139,17 +139,14 @@ class AppStack(Stack):
         self.security_group = database_sg
         self.rds_instance.connections.allow_default_port_from(database_sg)
 
-        # Tạo S3 bucket để lưu trữ archived data với tên unique theo region
+        # ==================== S3 BUCKET ====================
+        # QUAN TRỌNG: Bucket phải được tạo THỦ CÔNG trước khi deploy stack này
         data_bucket_name = f"meetassist-data-{Stack.of(self).account}-{Stack.of(self).region}"
         
-        self.data_stored_bucket = s3.Bucket(
+        # Import bucket đã tồn tại (không tạo mới)
+        self.data_stored_bucket = s3.Bucket.from_bucket_name(
             self, "DataStoredBucket",
-            bucket_name=data_bucket_name,
-            encryption=s3.BucketEncryption.S3_MANAGED,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-            versioned=False,
-            removal_policy=RemovalPolicy.RETAIN,  # Giữ lại bucket khi xóa stack
-            enforce_ssl=True
+            bucket_name=data_bucket_name
         )
 
 

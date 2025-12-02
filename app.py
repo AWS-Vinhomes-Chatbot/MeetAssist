@@ -20,6 +20,7 @@
 
 import aws_cdk as cdk
 
+from cdk_rds_pg_memdb_text_to_sql.auth_stack import AuthStack
 from cdk_rds_pg_memdb_text_to_sql.frontend_stack import FrontendStack
 from cdk_rds_pg_memdb_text_to_sql.dashboard_stack import DashboardStack
 from cdk_rds_pg_memdb_text_to_sql.vpc_stack import AppStack
@@ -45,16 +46,12 @@ db_init_stack = DatabaseInitStack(
     data_stored_bucket=vpc_stack.data_stored_bucket,
     env=env
 )
-db_init_stack.add_dependency(vpc_stack)
 
-# ==================== FRONTEND STACK (Cognito + CloudFront) ====================
-# Deploy trước để có user_pool cho DashboardStack
-# api_endpoint sẽ được lấy từ SSM Parameter (do DashboardStack lưu)
-frontend_stack = FrontendStack(app, "FrontendStack", env=env)
+# ==================== AUTH STACK (Cognito) ====================
+# Deploy trước để có user_pool cho DashboardStack và FrontendStack
+auth_stack = AuthStack(app, "AuthStack", env=env)
 
-# ==================== DASHBOARD STACK (API Gateway + Lambda) ====================
-# Deploy Lambda AdminManager + API Gateway
-# Lưu API endpoint vào SSM Parameter để FrontendStack có thể đọc
+
 dashboard_stack = DashboardStack(
     app, "DashboardStack",
     vpc=vpc_stack.vpc,
@@ -62,15 +59,23 @@ dashboard_stack = DashboardStack(
     data_stored_bucket=vpc_stack.data_stored_bucket,
     readonly_secret=vpc_stack.readonly_secret,
     rds_instance=vpc_stack.rds_instance,
-    user_pool=frontend_stack.user_pool,
+    user_pool=auth_stack.user_pool,  
     env=env
 )
-dashboard_stack.add_dependency(frontend_stack)
-dashboard_stack.add_dependency(db_init_stack)
+
+
+frontend_stack = FrontendStack(
+    app, "FrontendStack",
+    user_pool=auth_stack.user_pool,
+    cognito_domain_url=auth_stack.cognito_domain_url,  
+    api_endpoint=dashboard_stack.api_endpoint,  
+    env=env
+)
+
 
 # Comment tạm các stack khác
-# data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
-#                                       security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret,env=env)
+# data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=vpc_stack.rds_instance, vpc=vpc_stack.vpc,
+#                                       security_group=vpc_stack.security_group, readonly_secret=vpc_stack.readonly_secret,env=env)
 # cdk.Aspects.of(app).add(AwsSolutionsChecks(verbose=True))
 
 app.synth()
