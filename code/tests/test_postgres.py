@@ -18,7 +18,7 @@
 
 import unittest
 from unittest.mock import patch, MagicMock
-from code.services.postgres import PostgreSQLService
+from code.repositories.postgres import PostgreSQLService
 from code.util.postgres_validation import is_valid_postgres_identifier, POSTGRES_RESERVED_WORDS
 
 

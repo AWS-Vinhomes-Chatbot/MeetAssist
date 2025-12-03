@@ -27,6 +27,7 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_lambda as lambda_,
     aws_logs as logs,
+    aws_s3 as s3,
     Stack,
     CfnOutput,
     CustomResource,
@@ -69,19 +70,18 @@ class DatabaseInitStack(Stack):
             resources=[db_instance.secret.secret_arn, readonly_secret.secret_arn]
         ))
         
-        # Thêm quyền đọc S3 bucket để import CSV data
-        cr_lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=["s3:GetObject", "s3:ListBucket"],
-            resources=[
-                data_stored_bucket.bucket_arn,
-                f"{data_stored_bucket.bucket_arn}/*"
-            ]
-        ))
-        
+        # Add S3 permissions if data_bucket is provided
+        if data_stored_bucket:
+            cr_lambda_role.add_to_policy(iam.PolicyStatement(
+                actions=["s3:GetObject", "s3:ListBucket"],
+                resources=[data_stored_bucket.bucket_arn, f"{data_stored_bucket.bucket_arn}/*"]
+            ))
         NagSuppressions.add_resource_suppressions(cr_lambda_role, [
             {"id": "AwsSolutions-IAM4", "reason": "This is a managed policy for Lambda VPC execution.",
-             "appliesTo": ["Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"]}
-        ])
+             "appliesTo": ["Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"]},
+            {"id": "AwsSolutions-IAM5", "reason": "S3 wildcard permission required to read CSV files from data folder",
+             "appliesTo": ["Resource::arn:aws:s3:::meetassist-data-395118572884-ap-northeast-1/*"]}
+        ], apply_to_children=True)
 
         init_function = lambda_.Function(
             self,
@@ -157,7 +157,10 @@ class DatabaseInitStack(Stack):
             {"id": "AwsSolutions-L1",
              "reason": "Event handler is the latest Python version, 3.12"}
         ], True)
-        CustomResource(self, "db-cr", service_token=provider.service_token)
+        # Add version property to force re-run when data changes
+        import time
+        CustomResource(self, "db-cr", service_token=provider.service_token,
+                       properties={"version": "2025-12-03-v2-add-date-time-cols"})
 
 
         # Output the secret ARNs

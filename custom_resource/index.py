@@ -31,10 +31,21 @@ s3_client = boto3.client("s3")
 # ============================================
 # CAREER COUNSELING SCHEMA - HARDCODED
 # ============================================
+
+# Migration: Drop tables that need schema changes (Customer ID change from INT IDENTITY to VARCHAR)
+SCHEMA_MIGRATION = """
+-- Drop tables in reverse dependency order to allow CustomerID type change
+DROP TABLE IF EXISTS AppointmentFeedback CASCADE;
+DROP TABLE IF EXISTS Appointment CASCADE;
+DROP TABLE IF EXISTS ConsultantSchedule CASCADE;
+DROP TABLE IF EXISTS Consultant CASCADE;
+DROP TABLE IF EXISTS Customer CASCADE;
+"""
+
 CAREER_COUNSELING_SCHEMA = """
--- Bảng Customer (Khách hàng)
+-- Bảng Customer (Khách hàng) - CustomerID = Facebook User ID (VARCHAR, không phải IDENTITY)
 CREATE TABLE IF NOT EXISTS Customer (
-    CustomerID INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    CustomerID VARCHAR(50) PRIMARY KEY,
     FullName VARCHAR(100) NOT NULL,
     Email VARCHAR(100) NOT NULL UNIQUE,
     PhoneNumber VARCHAR(20),
@@ -70,11 +81,11 @@ CREATE TABLE IF NOT EXISTS ConsultantSchedule (
     CONSTRAINT UQ_Consultant_Schedule UNIQUE (ConsultantID, Date, StartTime)
 );
 
--- Bảng Cuộc hẹn
+-- Bảng Cuộc hẹn - CustomerID là Facebook User ID (VARCHAR)
 CREATE TABLE IF NOT EXISTS Appointment (
     AppointmentID INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     ConsultantID INT NOT NULL,
-    CustomerID INT NOT NULL,
+    CustomerID VARCHAR(50) NOT NULL,
     Date DATE NOT NULL,
     Time TIME NOT NULL,
     Duration INT NOT NULL DEFAULT 60,
@@ -178,11 +189,11 @@ def import_csv_to_table(conn, bucket_name, s3_key, table_name):
         columns = list(rows[0].keys())
         
         # CHỈ loại bỏ các cột PRIMARY KEY IDENTITY (không loại bỏ FK columns)
-        # Các bảng có PK tự động: customer(customerid), consultant(consultantid), 
+        # Các bảng có PK tự động: consultant(consultantid), 
         # consultantschedule(scheduleid), appointment(appointmentid), communityprogram(programid)
-        # KHÔNG loại bỏ: consultantid, customerid, programid khi chúng là FK
+        # NOTE: customer.customerid KHÔNG còn là IDENTITY - nó là Facebook User ID (VARCHAR)
         pk_identity_columns = {
-            "customer": ["customerid"],
+            "customer": [],  # customerid giờ là Facebook ID, không phải IDENTITY
             "consultant": ["consultantid"],
             "consultantschedule": ["scheduleid"],
             "appointment": ["appointmentid"],
@@ -271,17 +282,22 @@ def on_create(event):
     
     try:
         with conn.cursor() as cur:
+            # ========== STEP 0: Run Migration (Drop old tables if needed) ==========
+            print("Step 0: Running schema migration...")
+            cur.execute(SCHEMA_MIGRATION)
+            print("Schema migration completed - old tables dropped")
+            
             # ========== STEP 1: Create Schema ==========
             print("Step 1: Executing Career Counseling schema...")
             cur.execute(CAREER_COUNSELING_SCHEMA)
             print("Career Counseling schema created successfully")
             
-            # Enable pg_vector for embeddings (optional, for future AI features)
+            # Enable pg_vector for embeddings (for AI features)
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS embeddings (
                     id SERIAL PRIMARY KEY,
-                    embedding VECTOR(1536),
+                    embedding VECTOR(1024),
                     database_name VARCHAR(255) NOT NULL,
                     schema_name VARCHAR(255) NOT NULL,
                     table_name VARCHAR(255) NOT NULL,
@@ -302,7 +318,7 @@ def on_create(event):
                 print("Step 2: Creating readonly_user role...")
                 create_role_query = sql.SQL("CREATE ROLE readonly_user WITH LOGIN PASSWORD {}").format(
                     sql.Literal(read_only_secret_dict["password"]))
-                cur.execute(create_role_query)
+                cur.execute(create_role_query)  # nosemgrep
                 cur.execute("""
                     GRANT CONNECT ON DATABASE postgres TO readonly_user;
                     GRANT USAGE ON SCHEMA public TO readonly_user;

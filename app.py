@@ -20,21 +20,20 @@
 
 import aws_cdk as cdk
 
-from cdk_rds_pg_memdb_text_to_sql.auth_stack import AuthStack
-from cdk_rds_pg_memdb_text_to_sql.frontend_stack import FrontendStack
-from cdk_rds_pg_memdb_text_to_sql.dashboard_stack import DashboardStack
-from cdk_rds_pg_memdb_text_to_sql.vpc_stack import AppStack
-from cdk_rds_pg_memdb_text_to_sql.database_init_stack import DatabaseInitStack
+from cdk_meetasssit.vpc_stack import VpcStack
+from cdk_meetasssit.database_init_stack import DatabaseInitStack
+from cdk_meetasssit.data_indexer_stack import DataIndexerStack
+from cdk_meetasssit.text2sqltstack import Text2SQLStack
+from cdk_meetasssit.Webhook_stack import UserMessengerBedrockStack
+from cdk_meetasssit.auth_stack import AuthStack
+from cdk_meetasssit.frontend_stack import FrontendStack
+from cdk_meetasssit.dashboard_stack import DashboardStack
+from cdk_nag import AwsSolutionsChecks
 
 app = cdk.App()
+env = cdk.Environment(region="ap-northeast-1")  # Tokyo region
 
-env = cdk.Environment(region="ap-southeast-1")
-
-# ==================== VPC + RDS STACK ====================
-vpc_stack = AppStack(app, "AppStack", env=env)
-
-# ==================== DATABASE INIT STACK ====================
-# Tự động tạo schema + import data từ CSV files trong S3
+vpc_stack = VpcStack(app, "AppStack", env=env)
 db_init_stack = DatabaseInitStack(
     app, "DatabaseInitStack",
     db_instance=vpc_stack.rds_instance,
@@ -44,12 +43,11 @@ db_init_stack = DatabaseInitStack(
     data_stored_bucket=vpc_stack.data_stored_bucket,
     env=env
 )
-
-# ==================== AUTH STACK (Cognito) ====================
-# Deploy trước để có user_pool cho DashboardStack và FrontendStack
+data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=vpc_stack.rds_instance, vpc=vpc_stack.vpc,
+                                      security_group=vpc_stack.security_group, readonly_secret=vpc_stack.readonly_secret,env=env)
+text2sql_stack = Text2SQLStack(app, "Text2SQLStack", db_instance=vpc_stack.rds_instance, vpc=vpc_stack.vpc,
+                               security_group=vpc_stack.security_group, readonly_secret=vpc_stack.readonly_secret, env=env)
 auth_stack = AuthStack(app, "AuthStack", env=env)
-
-
 dashboard_stack = DashboardStack(
     app, "DashboardStack",
     vpc=vpc_stack.vpc,
@@ -60,8 +58,6 @@ dashboard_stack = DashboardStack(
     user_pool=auth_stack.user_pool,  
     env=env
 )
-
-
 frontend_stack = FrontendStack(
     app, "FrontendStack",
     user_pool=auth_stack.user_pool,
@@ -69,5 +65,11 @@ frontend_stack = FrontendStack(
     api_endpoint=dashboard_stack.api_endpoint,  
     env=env
 )
+# Webhook stack for Messenger chat handler (outside VPC)
+# Depends on Text2SQLStack because it invokes the TextToSQLFunction
+webhook_stack = UserMessengerBedrockStack(app, "WebhookStack", env=env)
+webhook_stack.add_dependency(text2sql_stack)
 
+
+cdk.Aspects.of(app).add(AwsSolutionsChecks(verbose=True))
 app.synth()

@@ -35,7 +35,7 @@ from cdk_nag import NagSuppressions
 from constructs import Construct
 
 
-class AppStack(Stack):
+class VpcStack(Stack):
     vpc: ec2.IVpc
     subnet: ec2.ISubnet
     security_group: ec2.ISecurityGroup
@@ -45,7 +45,6 @@ class AppStack(Stack):
 
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
-        # CfnInput for S3 Bucket name
         s3_bucket_name = CfnParameter(
             self, "S3BucketName",
             type="String",
@@ -64,26 +63,28 @@ class AppStack(Stack):
                 ),
             ]
         )
-
-        
-
+        self.data_stored_bucket = s3.Bucket.from_bucket_name(
+            self, "DataStoredBucket",
+            bucket_name="meetassist-data-395118572884-ap-northeast-1"
+        )
 
         # Output VPC và secret để dùng ở stack khác
         self.vpc = vpc
         # self.claude_secret = claude_secret
 
         self.vpc.add_flow_log("FlowLog")
-        self.subnet = self.vpc.isolated_subnets[0]  # Sửa từ private_subnets sang isolated_subnets
+        self.subnet = self.vpc.isolated_subnets[0]
 
-        # Create a PostgreSQL DB Instance
+        # Create a PostgreSQL DB Instance - using t3.micro for cost savings
         rds_instance = rds.DatabaseInstance(self, "AppDatabaseInstance",
                                             engine=rds.DatabaseInstanceEngine.postgres(
                                                 version=rds.PostgresEngineVersion.VER_16),
                                             instance_type=ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3,
-                                                                              ec2.InstanceSize.MICRO),  # Đổi từ SMALL sang MICRO
+                                                                              ec2.InstanceSize.MICRO),
                                             vpc=self.vpc,
                                             storage_encrypted=True,
-                                            allocated_storage=20,  # Limit storage 20GB
+                                            allocated_storage=20,  # Minimum storage (20GB)
+                                            max_allocated_storage=50,  # Auto-scaling up to 50GB
                                             vpc_subnets=ec2.SubnetSelection(
                                                 subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
                                             ),
@@ -192,20 +193,18 @@ class AppStack(Stack):
             private_dns_enabled=True,
             security_groups=[database_sg]  # Dùng chung SG với Lambda, rule port 443 đã được thêm ở trên
         )
+        
+        # Thêm VPC Endpoint cho Bedrock Runtime (cần thiết để Lambda trong VPC gọi Bedrock)
+        bedrock_runtime_endpoint = ec2.InterfaceVpcEndpoint(
+            self, "BedrockRuntimeEndpoint",
+            vpc=vpc,
+            service=ec2.InterfaceVpcEndpointAwsService.BEDROCK_RUNTIME,
+            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
+            private_dns_enabled=True,
+            security_groups=[database_sg]
+        )
 
-        # Bedrock endpoint - COMMENT vì chưa sử dụng
-        # bedrock_endpoint = ec2.InterfaceVpcEndpoint(
-        #     self, "BedrockRuntimeEndpoint",
-        #     vpc=vpc,
-        #     service=ec2.InterfaceVpcEndpointAwsService.BEDROCK_RUNTIME,
-        #     subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
-        #     private_dns_enabled=True,
-        #     security_groups=[database_sg]
-        # )
-
-
-        
-       
-        
-        
-        
+        # Suppress cdk-nag warnings for development
+        NagSuppressions.add_resource_suppressions(self.data_stored_bucket, [
+            {"id": "AwsSolutions-S1", "reason": "Server access logs not required for development"}
+        ])
