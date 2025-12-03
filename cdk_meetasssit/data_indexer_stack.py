@@ -59,11 +59,12 @@ class DataIndexerStack(Stack):
                      "secretsmanager:DescribeSecret"],
             resources=[db_instance.secret.secret_arn, readonly_secret.secret_arn]# quyên đọc secret RDS
         ))
-        # Add Bedrock permissions for amazon.titan-embed-text-v1
+        # Add Bedrock permissions for amazon.titan-embed-text-v2
         indexer_role.add_to_policy(iam.PolicyStatement(
             actions=["bedrock:InvokeModel"],
             resources=[
                 f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-embed-text-v1",
+                f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-embed-text-v2:0",
                 f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"]
         ))# quyền gọi Bedrock model
         func = lambda_.Function(

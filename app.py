@@ -20,23 +20,31 @@
 
 import aws_cdk as cdk
 
-from cdk_rds_pg_memdb_text_to_sql.vpc_stack import AppStack
-from cdk_rds_pg_memdb_text_to_sql.database_init_stack import DatabaseInitStack
-from cdk_rds_pg_memdb_text_to_sql.data_indexer_stack import DataIndexerStack
-from cdk_rds_pg_memdb_text_to_sql.Webhook_stack import UserMessengerBedrockStack
+from cdk_meetasssit.vpc_stack import AppStack
+from cdk_meetasssit.database_init_stack import DatabaseInitStack
+from cdk_meetasssit.data_indexer_stack import DataIndexerStack
+from cdk_meetasssit.text2sqltstack import Text2SQLStack
+from cdk_meetasssit.Webhook_stack import UserMessengerBedrockStack
 from cdk_nag import AwsSolutionsChecks
 
 app = cdk.App()
-env = cdk.Environment(region="ap-southeast-1")
+env = cdk.Environment(region="ap-northeast-1")  # Tokyo region
 
 app_stack = AppStack(app, "AppStack", env=env)
 db_init_stack = DatabaseInitStack(app, "DatabaseInitStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
-                                  security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret, env=env)
+                                  security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret,
+                                  data_bucket=app_stack.data_stored_bucket, env=env)
 data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
-                                      security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret,env=env)
+                                      security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret, env=env)
+
+# Text2SQL stack - Lambda for converting natural language to SQL (inside VPC)
+text2sql_stack = Text2SQLStack(app, "Text2SQLStack", db_instance=app_stack.rds_instance, vpc=app_stack.vpc,
+                               security_group=app_stack.security_group, readonly_secret=app_stack.readonly_secret, env=env)
 
 # Webhook stack for Messenger chat handler (outside VPC)
+# Depends on Text2SQLStack because it invokes the TextToSQLFunction
 webhook_stack = UserMessengerBedrockStack(app, "WebhookStack", env=env)
+webhook_stack.add_dependency(text2sql_stack)
 
 cdk.Aspects.of(app).add(AwsSolutionsChecks(verbose=True))
 app.synth()

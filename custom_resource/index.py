@@ -31,12 +31,23 @@ s3_client = boto3.client("s3")
 # ============================================
 # CAREER COUNSELING SCHEMA - HARDCODED
 # ============================================
+
+# Migration: Drop tables that need schema changes (Customer ID change from INT IDENTITY to VARCHAR)
+SCHEMA_MIGRATION = """
+-- Drop tables in reverse dependency order to allow CustomerID type change
+DROP TABLE IF EXISTS AppointmentFeedback CASCADE;
+DROP TABLE IF EXISTS Appointment CASCADE;
+DROP TABLE IF EXISTS ConsultantSchedule CASCADE;
+DROP TABLE IF EXISTS Consultant CASCADE;
+DROP TABLE IF EXISTS Customer CASCADE;
+"""
+
 CAREER_COUNSELING_SCHEMA = """
--- Bảng Customer (Khách hàng)
+-- Bảng Customer (Khách hàng) - CustomerID = Facebook User ID (VARCHAR, không phải IDENTITY)
 CREATE TABLE IF NOT EXISTS Customer (
-    CustomerID INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    FullName VARCHAR(100) NOT NULL,
-    Email VARCHAR(100) NOT NULL UNIQUE,
+    CustomerID VARCHAR(50) PRIMARY KEY,
+    FullName VARCHAR(100),
+    Email VARCHAR(100),
     PhoneNumber VARCHAR(20),
     DateOfBirth DATE,
     CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -70,11 +81,11 @@ CREATE TABLE IF NOT EXISTS ConsultantSchedule (
     CONSTRAINT UQ_Consultant_Schedule UNIQUE (ConsultantID, Date, StartTime)
 );
 
--- Bảng Cuộc hẹn
+-- Bảng Cuộc hẹn - CustomerID là Facebook User ID (VARCHAR)
 CREATE TABLE IF NOT EXISTS Appointment (
     AppointmentID INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     ConsultantID INT NOT NULL,
-    CustomerID INT NOT NULL,
+    CustomerID VARCHAR(50) NOT NULL,
     Date DATE NOT NULL,
     Time TIME NOT NULL,
     Duration INT NOT NULL DEFAULT 60,
@@ -97,33 +108,6 @@ CREATE TABLE IF NOT EXISTS AppointmentFeedback (
     CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (AppointmentID) REFERENCES Appointment(AppointmentID) ON DELETE CASCADE
 );
-
--- Bảng Chương trình cộng đồng
-CREATE TABLE IF NOT EXISTS CommunityProgram (
-    ProgramID INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    ProgramName VARCHAR(100) NOT NULL,
-    Date DATE NOT NULL,
-    Description VARCHAR(255),
-    Content TEXT,
-    Organizer VARCHAR(100),
-    Url VARCHAR(300),
-    IsDisabled BOOLEAN NOT NULL DEFAULT false,
-    Status VARCHAR(20) NOT NULL DEFAULT 'upcoming',
-    CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT CHK_ProgramStatus CHECK (Status IN ('upcoming', 'ongoing', 'completed'))
-);
-
--- Bảng Người tham gia chương trình cộng đồng
-CREATE TABLE IF NOT EXISTS ProgramParticipant (
-    ProgramID INT NOT NULL,
-    CustomerID INT NOT NULL,
-    RegisteredTime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    Status VARCHAR(20) NOT NULL DEFAULT 'registered',
-    FOREIGN KEY (ProgramID) REFERENCES CommunityProgram(ProgramID) ON DELETE CASCADE,
-    FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID) ON DELETE CASCADE,
-    CONSTRAINT PK_ProgramParticipant PRIMARY KEY (ProgramID, CustomerID),
-    CONSTRAINT CHK_ParticipantStatus CHECK (Status IN ('registered', 'attended', 'cancelled'))
-);
 """
 
 # ============================================
@@ -133,10 +117,8 @@ TABLE_IMPORT_ORDER = [
     "customer",           # Không có FK dependency
     "consultant",         # Không có FK dependency  
     "consultantschedule", # FK -> Consultant
-    "communityprogram",   # Không có FK dependency
     "appointment",        # FK -> Consultant, Customer
     "appointmentfeedback",# FK -> Appointment
-    "programparticipant", # FK -> CommunityProgram, Customer
 ]
 
 # Mapping từ tên file CSV (lowercase) sang tên table thực tế trong DB
@@ -144,10 +126,8 @@ TABLE_NAME_MAPPING = {
     "customer": "customer",
     "consultant": "consultant",
     "consultantschedule": "consultantschedule",
-    "communityprogram": "communityprogram",
     "appointment": "appointment",
     "appointmentfeedback": "appointmentfeedback",
-    "programparticipant": "programparticipant",
 }
 
 
@@ -209,17 +189,15 @@ def import_csv_to_table(conn, bucket_name, s3_key, table_name):
         columns = list(rows[0].keys())
         
         # CHỈ loại bỏ các cột PRIMARY KEY IDENTITY (không loại bỏ FK columns)
-        # Các bảng có PK tự động: customer(customerid), consultant(consultantid), 
+        # Các bảng có PK tự động: consultant(consultantid), 
         # consultantschedule(scheduleid), appointment(appointmentid), communityprogram(programid)
-        # KHÔNG loại bỏ: consultantid, customerid, programid khi chúng là FK
+        # NOTE: customer.customerid KHÔNG còn là IDENTITY - nó là Facebook User ID (VARCHAR)
         pk_identity_columns = {
-            "customer": ["customerid"],
+            "customer": [],  # customerid giờ là Facebook ID, không phải IDENTITY
             "consultant": ["consultantid"],
             "consultantschedule": ["scheduleid"],
             "appointment": ["appointmentid"],
-            "communityprogram": ["programid"],
             "appointmentfeedback": [],  # appointmentid là PK nhưng không phải IDENTITY
-            "programparticipant": [],   # composite PK, không có IDENTITY
         }
         
         identity_cols_for_table = pk_identity_columns.get(table_name.lower(), [])
@@ -304,6 +282,11 @@ def on_create(event):
     
     try:
         with conn.cursor() as cur:
+            # ========== STEP 0: Run Migration (Drop old tables if needed) ==========
+            print("Step 0: Running schema migration...")
+            cur.execute(SCHEMA_MIGRATION)
+            print("Schema migration completed - old tables dropped")
+            
             # ========== STEP 1: Create Schema ==========
             print("Step 1: Executing Career Counseling schema...")
             cur.execute(CAREER_COUNSELING_SCHEMA)

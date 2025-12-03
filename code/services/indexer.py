@@ -20,6 +20,50 @@ import hashlib
 import os
 from typing import Dict, List, Any
 
+# Vietnamese semantic descriptions for tables to improve embedding search
+# These descriptions help match user queries in Vietnamese with the correct tables
+TABLE_DESCRIPTIONS = {
+    "customer": """
+Bảng khách hàng (Customer): Lưu thông tin người dùng, khách hàng đặt lịch tư vấn.
+Chứa: tên khách hàng, email, số điện thoại, ngày sinh.
+CustomerID là Facebook User ID của người dùng.
+Dùng khi: tìm kiếm khách hàng, thông tin người dùng, danh sách khách.
+""",
+    "consultant": """
+Bảng tư vấn viên (Consultant): Lưu thông tin các tư vấn viên, chuyên gia tư vấn nghề nghiệp.
+Chứa: tên tư vấn viên, email, số điện thoại, chuyên môn (specialties), bằng cấp (qualifications), ảnh đại diện.
+Dùng khi: tìm tư vấn viên, danh sách tư vấn viên, thông tin chuyên gia, ai là tư vấn viên.
+""",
+    "consultantschedule": """
+Bảng lịch tư vấn (ConsultantSchedule): Lưu lịch làm việc, thời gian rảnh của tư vấn viên.
+Chứa: ngày (date), giờ bắt đầu (starttime), giờ kết thúc (endtime), trạng thái trống (isavailable).
+Liên kết với bảng Consultant qua ConsultantID.
+Dùng khi: tìm lịch trống, slot trống, tư vấn viên rảnh, khung giờ available, lịch hẹn còn trống, thời gian đặt lịch.
+""",
+    "appointment": """
+Bảng cuộc hẹn (Appointment): Lưu thông tin các cuộc hẹn tư vấn đã đặt.
+Chứa: ngày hẹn, giờ hẹn, trạng thái (pending/confirmed/completed/cancelled/rescheduled), mô tả, link meeting.
+Liên kết với Customer, Consultant, và ConsultantSchedule.
+Dùng khi: lịch hẹn, cuộc hẹn, đặt lịch, đổi lịch, hủy lịch, xem appointment, booking.
+""",
+    "appointmentfeedback": """
+Bảng đánh giá cuộc hẹn (AppointmentFeedback): Lưu feedback và rating sau buổi tư vấn.
+Chứa: điểm đánh giá (rating 0-5), nhận xét của khách hàng.
+Dùng khi: đánh giá, review, feedback, rating, nhận xét về tư vấn viên.
+""",
+    "communityprogram": """
+Bảng chương trình cộng đồng (CommunityProgram): Lưu thông tin các sự kiện, workshop, chương trình tư vấn nghề nghiệp.
+Chứa: tên chương trình, ngày, mô tả, nội dung, người tổ chức, link đăng ký, trạng thái.
+Dùng khi: sự kiện, workshop, chương trình, event, hoạt động cộng đồng.
+""",
+    "programparticipant": """
+Bảng người tham gia chương trình (ProgramParticipant): Lưu danh sách người đăng ký tham gia chương trình.
+Chứa: thời gian đăng ký, trạng thái (registered/attended/cancelled).
+Liên kết với CommunityProgram và Customer.
+Dùng khi: đăng ký chương trình, người tham gia, danh sách tham dự.
+""",
+}
+
 
 class DataIndexerService:
     """A service for indexing and managing database metadata and embeddings.
@@ -132,8 +176,17 @@ class DataIndexerService:
         metadata = []
 
         for (schema, table_name), columns in tables.items():
-            # Start with table information
-            table_string = f"Table: {table_name} (Schema: {schema})\nColumns:\n"
+            # Get Vietnamese semantic description for the table
+            table_description = TABLE_DESCRIPTIONS.get(table_name.lower(), "")
+            
+            # Start with semantic description for better embedding matching
+            if table_description:
+                table_string = f"{table_description.strip()}\n\n"
+            else:
+                table_string = ""
+            
+            # Add technical table information
+            table_string += f"Table: {table_name} (Schema: {schema})\nColumns:\n"
 
             # Add column information
             for col in columns:
@@ -212,6 +265,7 @@ class DataIndexerService:
         """Store embeddings in the database.
 
         This method stores the generated embeddings along with their metadata in the database.
+        If an embedding for the same table exists but with a different hash, it will be updated.
 
         Args:
             conn: Database connection object.
@@ -228,17 +282,28 @@ class DataIndexerService:
                 database_name = metadata["database"]
                 schema_name = metadata["schema"]
                 table_name = metadata["table"]
-                # Check if the embedding already exists
+                
+                # Check if the embedding already exists with the same hash
                 cur.execute("""
-                    SELECT id FROM embeddings 
-                    WHERE database_name = %s AND schema_name = %s AND table_name = %s AND embedding_hash = %s
-                """, (database_name, schema_name, table_name, embedding_hash))
+                    SELECT id, embedding_hash FROM embeddings 
+                    WHERE database_name = %s AND schema_name = %s AND table_name = %s
+                """, (database_name, schema_name, table_name))
+                
+                existing = cur.fetchone()
+                
+                if existing is not None:
+                    if existing[1] == embedding_hash:
+                        self.logger.info(f"Embedding for {database_name}.{schema_name}.{table_name} already exists with same hash.")
+                        continue
+                    else:
+                        # Hash changed - delete old embedding and insert new one
+                        self.logger.info(f"Embedding hash changed for {database_name}.{schema_name}.{table_name}, updating...")
+                        cur.execute("""
+                            DELETE FROM embeddings 
+                            WHERE database_name = %s AND schema_name = %s AND table_name = %s
+                        """, (database_name, schema_name, table_name))
 
-                if cur.fetchone() is not None:
-                    self.logger.info(f"Embedding for {database_name}.{schema_name}.{table_name} already exists.")
-                    continue
-
-                # If the embedding doesn't exist, insert it
+                # Insert new embedding
                 cur.execute("""
                     INSERT INTO embeddings (embedding, database_name, schema_name, table_name, embedding_text, embedding_hash)
                     VALUES (%s, %s, %s, %s, %s, %s)
@@ -247,7 +312,7 @@ class DataIndexerService:
                 conn.commit()
                 self.logger.info(f"Embedding for {database_name}.{schema_name}.{table_name} stored successfully.")
 
-    def compare_embeddings(self, conn, user_prompt: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def compare_embeddings(self, conn, user_prompt: str, top_k: int = 7, table_filter: List[str] = None) -> List[Dict[str, Any]]:
         """Compare the embedding of a user prompt with stored embeddings in the database.
 
         This method generates an embedding for the user prompt and compares it with
@@ -256,7 +321,9 @@ class DataIndexerService:
         Args:
             conn: Database connection object.
             user_prompt (str): The user's input prompt to compare against.
-            top_k (int): The number of top similar items to return (default is 5).
+            top_k (int): The number of top similar items to return (default is 7 for all main tables).
+            table_filter (List[str]): Optional list of table names to filter by. If provided,
+                                      only embeddings from these tables will be returned.
 
         Returns:
             List[Dict[str, Any]]: A list of dictionaries containing the top-k most similar items.
@@ -268,20 +335,33 @@ class DataIndexerService:
             # Generate embedding for the user prompt
             user_embedding = self.embedding_service.get_embedding(user_prompt)
             with conn.cursor() as cur:
-                # Execute SQL query to compare embeddings
-                cur.execute("""
-                    SELECT database_name, schema_name, table_name, embedding_text, 
-                           1 - (embedding <=> %s::vector) AS similarity
-                    FROM embeddings
-                    ORDER BY similarity DESC
-                    LIMIT %s
-                """, (user_embedding, top_k))
+                # Build SQL query based on whether table_filter is provided
+                if table_filter:
+                    # Filter by specific tables - useful for mutations that only need certain tables
+                    placeholders = ','.join(['%s'] * len(table_filter))
+                    cur.execute(f"""
+                        SELECT database_name, schema_name, table_name, embedding_text, 
+                               1 - (embedding <=> %s::vector) AS similarity
+                        FROM embeddings
+                        WHERE LOWER(table_name) IN ({placeholders})
+                        ORDER BY similarity DESC
+                        LIMIT %s
+                    """, (user_embedding, *[t.lower() for t in table_filter], top_k))
+                else:
+                    # No filter - return top-k from all tables
+                    cur.execute("""
+                        SELECT database_name, schema_name, table_name, embedding_text, 
+                               1 - (embedding <=> %s::vector) AS similarity
+                        FROM embeddings
+                        ORDER BY similarity DESC
+                        LIMIT %s
+                    """, (user_embedding, top_k))
 
-                # Fetch and return results
+                # Fetch and return results - lowered threshold to 0.05 to include more context
                 results = [
                     {"database": row[0], "schema": row[1], "table": row[2],
                      "embedding_text": row[3], "similarity": row[4]}
-                    for row in cur.fetchall() if float(row[4]) > 0.10
+                    for row in cur.fetchall() if float(row[4]) > 0.05
                 ]
                 return results
         except Exception as e:

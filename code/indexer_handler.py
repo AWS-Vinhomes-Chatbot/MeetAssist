@@ -21,7 +21,7 @@ from typing import Dict, Any
 
 import boto3
 
-from code.repositories.postgres import PostgreSQLService
+from repositories.postgres import PostgreSQLService
 from services.indexer import DataIndexerService
 from services.embed import EmbeddingService
 

@@ -6,9 +6,10 @@ Responsibilities:
 - Send typing indicators
 - Send quick replies, buttons, templates
 - Manage send API errors and retries
+
+Note: Webhook verification and signature validation is handled by webhook_receiver.py
 """
 
-import hashlib
 import os
 import json
 import logging
@@ -16,15 +17,12 @@ import requests
 from typing import Dict, Any, List, Optional
 import boto3
 from botocore.exceptions import ClientError
-import hmac
 
 logger = logging.getLogger()
 
 # Cache for credentials to avoid repeated AWS API calls
 _credentials_cache = {
-    "page_token": None,
-    "app_secret": None,
-    "verify_token": None
+    "page_token": None
 }
 
 
@@ -233,117 +231,6 @@ class MessengerService:
             logger.error(f"Error getting secret {secret_arn}: {e}")
             raise
 
-    def _get_app_secret(self) -> str:
-        """Get Facebook App Secret from cache or SSM."""
-        if _credentials_cache["app_secret"]:
-            return _credentials_cache["app_secret"]
-        
-        FB_APP_SECRET_PARAM = os.environ.get("FB_APP_SECRET_PARAM")
-        secret = self.get_parameter_value(FB_APP_SECRET_PARAM)
-        _credentials_cache["app_secret"] = secret
-        return secret
-    
-    def _get_verify_token(self) -> str:
-        """Get webhook verify token from cache or Secrets Manager."""
-        if _credentials_cache["verify_token"]:
-            return _credentials_cache["verify_token"]
-        
-        FB_PAGE_TOKEN_SECRET_ARN = os.environ.get("FB_PAGE_TOKEN_SECRET_ARN")
-        token = self.get_secret_value(FB_PAGE_TOKEN_SECRET_ARN, "verify_token")
-        _credentials_cache["verify_token"] = token
-        return token
-    
-    def verify_facebook_signature(self, payload: str, signature: str) -> bool:
-        """
-        Verify Facebook webhook signature using HMAC-SHA256.
-        
-        Args:
-            payload: Raw request body
-            signature: X-Hub-Signature-256 header value
-            
-        Returns:
-            True if signature is valid
-        """
-        try:
-            app_secret = self._get_app_secret()
-            expected = hmac.new(app_secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
-            return hmac.compare_digest(f"sha256={expected}", signature)
-        except Exception as e:
-            logger.error(f"Error verifying signature: {e}")
-            return False
-    
-    def handle_webhook_verification(self, event: dict) -> dict:
-        """
-        Handle Facebook webhook verification (GET request).
-        
-        Args:
-            event: API Gateway event
-            
-        Returns:
-            Response dict with statusCode and body
-        """
-        params = event.get("queryStringParameters") or {}
-        mode = params.get("hub.mode")
-        token = params.get("hub.verify_token")
-        challenge = params.get("hub.challenge")
-        
-        verify_token = self._get_verify_token()
-        
-        if mode == "subscribe" and token == verify_token:
-            logger.info("Webhook verified successfully")
-            return {"statusCode": 200, "body": challenge}
-        else:
-            logger.warning("Webhook verification failed")
-            return {"statusCode": 403, "body": "Forbidden"}
-    def parse_messenger_event(self, event: dict) -> dict:
-        """
-        Parse and validate webhook event from Facebook.
-        
-        Returns dict with:
-        - valid: bool (True if signature valid)
-        - data: dict (parsed webhook data)
-        - error: str (error message if invalid)
-        """
-        try:
-            headers = event.get("headers") or {}
-            signature = headers.get("x-hub-signature-256") or headers.get("X-Hub-Signature-256")
-            body = event.get("body", "")
-            
-            # Validate signature
-            if signature and not self.verify_facebook_signature(body, signature):
-                logger.warning("Invalid Facebook signature")
-                return {
-                    "valid": False,
-                    "error": "Invalid signature"
-                }
-            
-            # Decode base64 if needed
-            if event.get("isBase64Encoded"):
-                import base64
-                body = base64.b64decode(body).decode()
-            
-            # Parse JSON
-            data = json.loads(body) if isinstance(body, str) else body
-            logger.info(f"Webhook event parsed: {data.get('object', 'unknown')} with {len(data.get('entry', []))} entries")
-            
-            return {
-                "valid": True,
-                "data": data
-            }
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error: {e}")
-            return {
-                "valid": False,
-                "error": f"Invalid JSON: {str(e)}"
-            }
-        except Exception as e:
-            logger.error(f"Error parsing webhook event: {e}")
-            return {
-                "valid": False,
-                "error": f"Parse error: {str(e)}"
-            }
-    
     def extract_messages(self, webhook_data: dict) -> List[Dict[str, Any]]:
         """
         Extract messages from parsed webhook data.
@@ -386,6 +273,7 @@ class MessengerService:
                             messages.append({
                                 "type": "quick_reply",
                                 "psid": psid,
+                                "mid": message.get("mid"),  # Message ID for deduplication
                                 "payload": message["quick_reply"].get("payload", ""),
                                 "text": message.get("text", ""),
                                 "timestamp": timestamp
@@ -395,6 +283,7 @@ class MessengerService:
                             messages.append({
                                 "type": "message",
                                 "psid": psid,
+                                "mid": message.get("mid"),  # Message ID for deduplication
                                 "text": message["text"].strip(),
                                 "timestamp": timestamp
                             })
@@ -404,6 +293,7 @@ class MessengerService:
                         messages.append({
                             "type": "postback",
                             "psid": psid,
+                            "mid": postback.get("mid"),  # Message ID for deduplication
                             "payload": postback.get("payload", ""),
                             "title": postback.get("title", ""),
                             "timestamp": timestamp

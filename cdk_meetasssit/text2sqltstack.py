@@ -115,7 +115,7 @@ class Text2SQLStack(Stack):
                 )
             ),
             role=lambda_role,
-            timeout=Duration.seconds(60),# có thể set lâu hơn nếu cần
+            timeout=Duration.seconds(120),  # Increased for Bedrock retry
             vpc=vpc,
             security_groups=[security_group],
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
