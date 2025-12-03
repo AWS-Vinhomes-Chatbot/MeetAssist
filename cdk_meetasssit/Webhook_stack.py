@@ -71,7 +71,9 @@ class UserMessengerBedrockStack(Stack):
         fb_page_token_secret = sm.Secret.from_secret_name_v2(
             self, "FacebookPageToken", "meetassist/facebook/page_token"
         )
-
+        fb_verify_token = sm.Secret.from_secret_name_v2(
+            self, "FacebookVerifyToken", "/meetassist/facebook/verify_token"
+        )
         # 4) IAM Role for Webhook Receiver (lightweight - just pushes to SQS)
         webhook_receiver_role = iam.Role(
             self, "WebhookReceiverRole",
@@ -81,6 +83,7 @@ class UserMessengerBedrockStack(Stack):
             ],
         )
         fb_app_secret_param.grant_read(webhook_receiver_role)
+        fb_verify_token.grant_read(webhook_receiver_role)  # Grant access to verify token secret
         message_queue.grant_send_messages(webhook_receiver_role)
 
         # 5) IAM Role for Chat Processor (heavier - processes messages)
@@ -129,7 +132,7 @@ class UserMessengerBedrockStack(Stack):
             environment={
                 "MESSAGE_QUEUE_URL": message_queue.queue_url,
                 "FB_APP_SECRET_PARAM": fb_app_secret_param.parameter_name,
-                "FB_VERIFY_TOKEN": "meetassist_verify_token",
+                "FB_VERIFY_TOKEN_SECRET": "/meetassist/facebook/verify_token",
             },
             log_retention=logs.RetentionDays.ONE_WEEK,
         )

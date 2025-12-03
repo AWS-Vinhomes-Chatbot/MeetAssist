@@ -63,10 +63,6 @@ class VpcStack(Stack):
                 ),
             ]
         )
-        self.data_stored_bucket = s3.Bucket.from_bucket_name(
-            self, "DataStoredBucket",
-            bucket_name="meetassist-data-395118572884-ap-northeast-1"
-        )
 
         # Output VPC và secret để dùng ở stack khác
         self.vpc = vpc
@@ -150,10 +146,6 @@ class VpcStack(Stack):
             bucket_name=data_bucket_name
         )
 
-
-
-
-        
         # Interface VPC Endpoints với policy để restrict access (ví dụ: chỉ read/write cụ thể)
         # khởi tạo các endpoint cần thiết
         dynamo_endpoint = ec2.GatewayVpcEndpoint(

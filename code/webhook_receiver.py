@@ -34,12 +34,16 @@ _credentials_cache = {}
 
 
 def get_verify_token():
-    """Get Facebook verify token from SSM."""
+    """Get Facebook verify token from Secrets Manager."""
     if 'verify_token' not in _credentials_cache:
-        param_name = os.environ.get('FB_APP_ID_PARAM', '/meetassist/facebook/app_id')
-        # Verify token is typically a simple string you set in Facebook App settings
-        # For simplicity, we'll use a fixed value or env var
-        _credentials_cache['verify_token'] = os.environ.get('FB_VERIFY_TOKEN', 'meetassist_verify_token')
+        try:
+            secret_name = os.environ.get('FB_VERIFY_TOKEN_SECRET', '/meetassist/facebook/verify_token')
+            response = secrets_client.get_secret_value(SecretId=secret_name)
+            _credentials_cache['verify_token'] = response['SecretString']
+        except Exception as e:
+            logger.error(f"Error getting verify token from Secrets Manager: {e}")
+            # Fallback to env var
+            _credentials_cache['verify_token'] = os.environ.get('FB_VERIFY_TOKEN', 'meetassist_verify_token')
     return _credentials_cache['verify_token']
 
 

@@ -34,10 +34,10 @@ The following are needed in order to proceed with this post:
 * [Install AWS CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting-started.html)
 * The [AWS Command Line Interface (AWS CLI)](https://aws.amazon.com/cli/).
 * The AWS Systems Manager [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html).
-* [Amazon Bedrock model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html) enabled for Anthropic Claude 3.5 Sonnet and Amazon Titan Embeddings G1 – Text in the us-west-2 Region.
-* Python 3.121 or higher with the pip package manager.
-* [500,000+ US Homes Data (For Sale Properties)](https://www.kaggle.com/datasets/polartech/500000-us-homes-data-for-sale-properties)
-  * License – [CC0: Public Domain](https://creativecommons.org/publicdomain/zero/1.0/)
+* [Amazon Bedrock model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html) enabled for Anthropic Claude 3.5 Sonnet and Amazon Titan Embeddings G1 – Text in the ap-northeast-1 Region.
+* Python 3.12 or higher with the pip package manager.
+  
+ 
 
 At this point you can now synthesize the CloudFormation template for this code.
 
