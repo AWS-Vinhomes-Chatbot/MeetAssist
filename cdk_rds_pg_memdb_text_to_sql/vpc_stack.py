@@ -27,6 +27,8 @@ from aws_cdk import (
     aws_dynamodb as dynamodb,
     aws_secretsmanager as sm,
     aws_logs as logs,
+    aws_s3 as s3,       
+    aws_glue as glue,
     Stack, CfnOutput, Duration, CfnParameter, BundlingOptions, RemovalPolicy
 )
 from cdk_nag import NagSuppressions
@@ -39,6 +41,7 @@ class AppStack(Stack):
     security_group: ec2.ISecurityGroup
     rds_instance: rds.IDatabaseInstance
     readonly_secret: sm.ISecret
+    data_stored_bucket: s3.IBucket
 
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -51,10 +54,10 @@ class AppStack(Stack):
         )
 
 
-        # VPC với max_azs=2 cho HA, và Isolated Private Subnets để bảo mật cao
+
         vpc = ec2.Vpc(
             self, "AppVPC",
-            max_azs=2,
+            max_azs=2, # Giới hạn 1 AZ để tiết kiệm chi phí cho ví dụ này
             subnet_configuration=[
                 ec2.SubnetConfiguration(
                     name="PrivateIsolated", subnet_type=ec2.SubnetType.PRIVATE_ISOLATED, cidr_mask=24
@@ -70,16 +73,17 @@ class AppStack(Stack):
         # self.claude_secret = claude_secret
 
         self.vpc.add_flow_log("FlowLog")
-        self.subnet = self.vpc.private_subnets[0]
+        self.subnet = self.vpc.isolated_subnets[0]  # Sửa từ private_subnets sang isolated_subnets
 
         # Create a PostgreSQL DB Instance
         rds_instance = rds.DatabaseInstance(self, "AppDatabaseInstance",
                                             engine=rds.DatabaseInstanceEngine.postgres(
                                                 version=rds.PostgresEngineVersion.VER_16),
                                             instance_type=ec2.InstanceType.of(ec2.InstanceClass.BURSTABLE3,
-                                                                              ec2.InstanceSize.SMALL),
+                                                                              ec2.InstanceSize.MICRO),  # Đổi từ SMALL sang MICRO
                                             vpc=self.vpc,
                                             storage_encrypted=True,
+                                            allocated_storage=20,  # Limit storage 20GB
                                             vpc_subnets=ec2.SubnetSelection(
                                                 subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
                                             ),
@@ -114,32 +118,71 @@ class AppStack(Stack):
         
         database_sg = ec2.SecurityGroup(
             self, "DatabaseSecurityGroup",
-            vpc=self.vpc
+            vpc=self.vpc,
+            description="Security group for Lambda, RDS and VPC Endpoints"
         )
-        # tạo rule cho phép traffic từ chính security group này
+        
+        # Rule 1: Cho phép traffic PostgreSQL từ chính security group này (Lambda -> RDS)
         database_sg.add_ingress_rule(
             database_sg,
             ec2.Port.tcp(5432),
             "Allow PostgreSQL traffic within the security group"
         )
         
+        # Rule 2: Cho phép traffic HTTPS từ chính security group này (Lambda -> Secrets Manager/Bedrock Endpoints)
+        database_sg.add_ingress_rule(
+            database_sg,
+            ec2.Port.tcp(443),
+            "Allow HTTPS traffic for VPC Endpoints (Secrets Manager)"
+        )
+        
         self.security_group = database_sg
         self.rds_instance.connections.allow_default_port_from(database_sg)
+
+        # ==================== S3 BUCKET ====================
+        # QUAN TRỌNG: Bucket phải được tạo THỦ CÔNG trước khi deploy stack này
+        data_bucket_name = f"meetassist-data-{Stack.of(self).account}-{Stack.of(self).region}"
+        
+        # Import bucket đã tồn tại (không tạo mới)
+        self.data_stored_bucket = s3.Bucket.from_bucket_name(
+            self, "DataStoredBucket",
+            bucket_name=data_bucket_name
+        )
+
+
+
+
+        
         # Interface VPC Endpoints với policy để restrict access (ví dụ: chỉ read/write cụ thể)
         # khởi tạo các endpoint cần thiết
-        dynamo_endpoint = ec2.InterfaceVpcEndpoint(
+        dynamo_endpoint = ec2.GatewayVpcEndpoint(
             self, "DynamoDBEndpoint",
             vpc=vpc,
-            service=ec2.InterfaceVpcEndpointAwsService.DYNAMODB,
-            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
-            private_dns_enabled=True  # Để resolve DNS private
+            service=ec2.GatewayVpcEndpointAwsService.DYNAMODB,
+            subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)],          
         )
         s3_endpoint = ec2.GatewayVpcEndpoint(  # Sử dụng Gateway cho S3 để tiết kiệm chi phí
             self, "S3Endpoint",
             vpc=vpc,
             service=ec2.GatewayVpcEndpointAwsService.S3,
-            subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)]
+            subnets=[ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)] 
         )
+
+
+        # Thêm policy cho S3 Gateway Endpoint
+        s3_endpoint.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            principals=[iam.AnyPrincipal()],
+            actions=["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+            resources=[
+                self.data_stored_bucket.bucket_arn,
+                self.data_stored_bucket.bucket_arn + "/*",
+                f"arn:aws:s3:::{s3_bucket_name.value_as_string}", 
+                f"arn:aws:s3:::{s3_bucket_name.value_as_string}/*"
+            ]
+        ))
+
+
         #thiết lập secrets manager endpoint
         secrets_endpoint = ec2.InterfaceVpcEndpoint(
             self, "SecretsManagerEndpoint",
@@ -147,8 +190,22 @@ class AppStack(Stack):
             service=ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
             subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
             private_dns_enabled=True,
-            security_groups=[database_sg]
+            security_groups=[database_sg]  # Dùng chung SG với Lambda, rule port 443 đã được thêm ở trên
         )
 
+        # Bedrock endpoint - COMMENT vì chưa sử dụng
+        # bedrock_endpoint = ec2.InterfaceVpcEndpoint(
+        #     self, "BedrockRuntimeEndpoint",
+        #     vpc=vpc,
+        #     service=ec2.InterfaceVpcEndpointAwsService.BEDROCK_RUNTIME,
+        #     subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
+        #     private_dns_enabled=True,
+        #     security_groups=[database_sg]
+        # )
+
+
+        
+       
+        
         
         
