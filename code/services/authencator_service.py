@@ -328,9 +328,13 @@ class Authenticator:
             "body": "<html><body><h1>MeetAssist</h1><p>Authentication handled via Messenger</p></body></html>"
         }
 
-    def handle_user_authorization_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_user_authorization_event(self, psid: str, message_text: str) -> Dict[str, Any]:
         """
         Handle user authorization flow with OTP verification.
+        
+        Args:
+            psid: User's Page-Scoped ID (already extracted by chat_handler)
+            message_text: User's message text (already extracted by chat_handler)
         
         States:
         - None/initial: Request email
@@ -338,28 +342,6 @@ class Authenticator:
         - awaiting_otp: User entering OTP code
         - authenticated: User successfully authenticated
         """
-        # Parse webhook event
-        data = self.message_service.parse_messenger_event(event)
-        
-        if not data.get("valid"):
-            logger.error(f"Invalid messenger event: {data.get('error')}")
-            return {"statusCode": 400, "body": "Invalid event"}
-        
-        # Extract message details
-        messages = self.message_service.extract_messages(data["data"])
-        if not messages:
-            logger.error("No messages found in event")
-            return {"statusCode": 400, "body": "No messages"}
-        
-        # Get first message from the list
-        msg_data = messages[0]
-        message_text = msg_data.get("text", "") or msg_data.get("payload", "")
-        psid = msg_data.get("psid")
-        
-        if not psid:
-            logger.error("No PSID found in message")
-            return {"statusCode": 400, "body": "No PSID"}
-        
         logger.info(f"Processing auth for PSID {psid}: {message_text}")
         session = self.session_table.get_item(Key={"psid": psid})    
         # Check authentication state

@@ -68,7 +68,8 @@ sm_client = session.client("secretsmanager")
 RDS_HOST = os.getenv("RDS_HOST")
 RDS_DATABASE_NAME = os.getenv("DB_NAME", "postgres")
 RDS_SCHEMA = os.getenv("DB_SCHEMA", "public")
-SECRET_NAME = os.getenv("SECRET_NAME")
+SECRET_NAME = os.getenv("SECRET_NAME")  # Read-only for SELECT queries
+ADMIN_SECRET_NAME = os.getenv("ADMIN_SECRET_NAME")  # Admin for mutations (INSERT/UPDATE/DELETE)
 
 # Initialize services
 embed = EmbeddingService(bedrock_client=bedrock_client, logger=logger)
@@ -265,7 +266,9 @@ def _handle_mutation(psid: str, mutation_request: str, appointment_info: Dict[st
     logger.debug(f"Appointment info: {appointment_info}")
     
     # Connect to database
-    pg.set_secret(SECRET_NAME)
+    # Use admin secret for mutations (INSERT/UPDATE/DELETE)
+    admin_secret = ADMIN_SECRET_NAME or SECRET_NAME
+    pg.set_secret(admin_secret)
     mutation_conn = pg.connect_to_db()
     if not mutation_conn:
         logger.error("Failed to connect to database for mutation")

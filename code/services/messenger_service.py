@@ -231,6 +231,46 @@ class MessengerService:
             logger.error(f"Error getting secret {secret_arn}: {e}")
             raise
 
+    def parse_messenger_event(self, event: dict) -> dict:
+        """
+        Parse and validate webhook event from Facebook.
+        
+        Returns dict with:
+        - valid: bool (True if signature valid)
+        - data: dict (parsed webhook data)
+        - error: str (error message if invalid)
+        """
+        try:
+            headers = event.get("headers") or {}
+            body = event.get("body", "")
+            
+            # Decode base64 if needed
+            if event.get("isBase64Encoded"):
+                import base64
+                body = base64.b64decode(body).decode()
+            
+            # Parse JSON
+            data = json.loads(body) if isinstance(body, str) else body
+            logger.info(f"Webhook event parsed: {data.get('object', 'unknown')} with {len(data.get('entry', []))} entries")
+            
+            return {
+                "valid": True,
+                "data": data
+            }
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {e}")
+            return {
+                "valid": False,
+                "error": f"Invalid JSON: {str(e)}"
+            }
+        except Exception as e:
+            logger.error(f"Error parsing webhook event: {e}")
+            return {
+                "valid": False,
+                "error": f"Parse error: {str(e)}"
+            }
+
     def extract_messages(self, webhook_data: dict) -> List[Dict[str, Any]]:
         """
         Extract messages from parsed webhook data.

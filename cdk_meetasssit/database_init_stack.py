@@ -158,7 +158,7 @@ class DatabaseInitStack(Stack):
         # Add version property to force re-run when data changes
         import time
         CustomResource(self, "db-cr", service_token=provider.service_token,
-                       properties={"version": "2025-01-10-v1-migration"})
+                       properties={"version": "2025-12-03-v2-add-date-time-cols"})
 
 
         # Output the secret ARNs

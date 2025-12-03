@@ -122,6 +122,7 @@ class Text2SQLStack(Stack):
             memory_size=2048,  # Max for Lambda without provisioned concurrency is 3008 MB
             environment={
                 "SECRET_NAME": readonly_secret.secret_name,
+                "ADMIN_SECRET_NAME": db_instance.secret.secret_name,  # For mutations (INSERT/UPDATE/DELETE)
                 "RDS_HOST": db_instance.instance_endpoint.hostname,
             },
             log_retention=logs.RetentionDays.ONE_WEEK

@@ -156,7 +156,7 @@ def process_chat_message(psid: str, user_question: str, original_event: dict):
     if not is_authenticated:
         # User not authenticated - delegate to auth handler
         logger.info(f"User {psid} not authenticated, delegating to auth handler")
-        auth.handle_user_authorization_event(original_event)
+        auth.handle_user_authorization_event(psid, user_question)
         return
     
     # Check and reset expired session/booking flow
