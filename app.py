@@ -25,8 +25,6 @@ from cdk_rds_pg_memdb_text_to_sql.frontend_stack import FrontendStack
 from cdk_rds_pg_memdb_text_to_sql.dashboard_stack import DashboardStack
 from cdk_rds_pg_memdb_text_to_sql.vpc_stack import AppStack
 from cdk_rds_pg_memdb_text_to_sql.database_init_stack import DatabaseInitStack
-# from cdk_rds_pg_memdb_text_to_sql.data_indexer_stack import DataIndexerStack
-# from cdk_nag import AwsSolutionsChecks
 
 app = cdk.App()
 
@@ -71,11 +69,5 @@ frontend_stack = FrontendStack(
     api_endpoint=dashboard_stack.api_endpoint,  
     env=env
 )
-
-
-# Comment tạm các stack khác
-# data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=vpc_stack.rds_instance, vpc=vpc_stack.vpc,
-#                                       security_group=vpc_stack.security_group, readonly_secret=vpc_stack.readonly_secret,env=env)
-# cdk.Aspects.of(app).add(AwsSolutionsChecks(verbose=True))
 
 app.synth()
