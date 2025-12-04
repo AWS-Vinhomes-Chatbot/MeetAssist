@@ -92,8 +92,8 @@ SESSION_TIMEOUT_SECONDS = 1800  # 30 phút không hoạt động → reset sessi
 SLOT_CACHE_TTL_SECONDS = 300    # 5 phút → refresh slot cache
 BOOKING_FLOW_TIMEOUT_SECONDS = 600  # 10 phút trong booking flow → auto reset
 
-# Required fields for CREATE - giờ chỉ cần tên, SĐT (slot đã chọn từ cache)
-CREATE_REQUIRED_FIELDS = ["customer_name", "phone_number"]
+# Required fields for CREATE - giờ cần tên, SĐT, email (slot đã chọn từ cache)
+CREATE_REQUIRED_FIELDS = ["customer_name", "phone_number", "email"]
 
 # Required fields for update/cancel (chỉ cần appointment_id)
 UPDATE_REQUIRED_FIELDS = ["appointment_id"]
@@ -503,6 +503,11 @@ class SessionService:
                 if not cached_vector:
                     continue
                 
+                # Skip turns without sql_result in metadata (empty results shouldn't be cached)
+                turn_metadata = turn.get("metadata", {})
+                if not turn_metadata or not turn_metadata.get("sql_result"):
+                    continue
+                
                 # Convert string back to vector for computation
                 cached_vector = _string_to_vector(cached_vector)
                 
@@ -514,7 +519,7 @@ class SessionService:
                     best_match = {
                         "user": turn.get("user"),
                         "assistant": turn.get("assistant"),
-                        "metadata": turn.get("metadata", {}),
+                        "metadata": turn_metadata,
                         "vector_score": round(similarity, 3)
                     }
             
@@ -597,7 +602,7 @@ class SessionService:
                 "assistant": assistant_msg,
                 "intent": intent,
                 "metadata": _convert_floats_to_decimal(metadata) if metadata else {},
-                "timestamp": msg_data.get("timestamp") or int(time.time())
+                "timestamp": int(msg_data.get("timestamp") or int(time.time()))
             })
             
             # Keep only last MAX_CONTEXT_TURNS messages (default 3)

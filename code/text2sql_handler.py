@@ -189,7 +189,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             logger.info(f"Schema context preview: {schema_context_text[:500]}...")
         
         # Generate SQL from natural language using Bedrock
-        sql_result = text_to_sql.get_sql_from_bedrock(full_prompt, schema_context_text)
+        # Pass psid as customer_id for user-specific queries (e.g., "lịch hẹn của tôi")
+        sql_result = text_to_sql.get_sql_from_bedrock(full_prompt, schema_context_text, customer_id=psid)
         
         # Check if SQL generation failed (returns dict with error)
         if isinstance(sql_result, dict) and sql_result.get("statusCode") == 500:

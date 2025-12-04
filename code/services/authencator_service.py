@@ -404,6 +404,6 @@ class Authenticator:
             else:
                 # Store initial state
                 self.session_service.put_new_session(psid)
-                self.message_service.send_text_message(psid, "👋 Xin chào! Để sử dụng MeetAssist, vui lòng nhập địa chỉ email của bạn.")
+                self.message_service.send_text_message(psid, "👋 Để MeetAssist có thể giúp bạn đặt lịch, vui lòng nhập địa chỉ email của bạn.")
         
         return {"statusCode": 200, "body": "OK"}

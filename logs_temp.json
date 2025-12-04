@@ -1,0 +1,85 @@
+{
+    "events": [
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637449,
+            "message": "[INFO]\t2025-12-04T15:53:57.449Z\t\tFound credentials in environment variables.\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774288902077209720932534875515869431785578605445120"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637542,
+            "message": "[INFO]\t2025-12-04T15:53:57.542Z\t\tCreated new DynamoDB resource\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774290976046513184280487038337668788083198661623809"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637544,
+            "message": "[INFO]\t2025-12-04T15:53:57.544Z\t\tDynamoDBRepository initialized with table: WebhookStack-SessionTableA016F679-IM8I3QDZQ2TW\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774291020648003581341733321409105333379921673584642"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637555,
+            "message": "[INFO]\t2025-12-04T15:53:57.555Z\t\tCreated SES client for region: ap-northeast-1\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774291265956200765178587878302006332511898239369219"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637564,
+            "message": "[INFO]\t2025-12-04T15:53:57.564Z\t\tCreated Bedrock Embed client for region: ap-northeast-1\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774291466662907551954196152123470786347151793192964"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637564,
+            "message": "[INFO]\t2025-12-04T15:53:57.564Z\t\tSessionService initialized: similarity_threshold=0.8\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774291466662907551954196152123470786347151793192965"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637565,
+            "message": "[INFO]\t2025-12-04T15:53:57.565Z\t\tDynamoDBRepository initialized with table: WebhookStack-SessionTableA016F679-IM8I3QDZQ2TW\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774291488963652750484819293659189058995513299173382"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637565,
+            "message": "[INFO]\t2025-12-04T15:53:57.565Z\t\tSessionService initialized: similarity_threshold=0.8\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774291488963652750484819293659189058995513299173383"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637568,
+            "message": "[INFO]\t2025-12-04T15:53:57.568Z\t\tCreated Bedrock Runtime client for region: us-east-1\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774291555865888346076688718266343876940597817114632"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637568,
+            "message": "[INFO]\t2025-12-04T15:53:57.568Z\t\tBedrockService initialized with model: jp.anthropic.claude-haiku-4-5-20251001-v1:0, max_tokens: 1500, temperature: 0.7\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774291555865888346076688718266343876940597817114633"
+        },
+        {
+
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637585,
+'charmap' codec can't encode character '\u1ecb' in position 128: character maps to <undefined>
+            "message": "[INFO]\t2025-12-04T15:53:57.585Z\ta5e70600-5377-5813-911e-67abe3b35d27\tReceived event: {\"Records\": [{\"messageId\": \"e635fae6-3a36-4339-8349-5dbf31939c7f\", \"receiptHandle\": \"AQEBaW7PHY7RGeFdEtuc2+3JNvTRnSHSzbB24UDkNVBy0YDlzRXxd3ApWXwgPJrtqKKl+FUHa1ZkIKRnBwIU4c9WQZsPDlFsEjDw2NVnFMLI9eUPDd57v5Q0b30UioNabghjENZIihwVpoPN6uFdPOBlaVCco93K8cHB0+TvMyrcpc8ho9EDUs6RkYrpb/l1C3vqCGa6qjrjGvpMpKh2zgSxZV4u9ilAD5ocRwhTfQY3TBEBFBgGnmVSo9C5VgcMeX2fD/D1Icbtz3T+i9SylqO0uFSCsGhKaBYcSv9N0nYDaU+15xCMEBg2Hw90RiNWxpUh\", \"body\": \"{\\\"messaging_event\\\": {\\\"sender\\\": {\\\"id\\\": \\\"9162234913802561\\\"}, \\\"recipient\\\": {\\\"id\\\": \\\"103575692353867\\\"}, \\\"timestamp\\\": 1764863451269, \\\"message\\\": {\\\"mid\\\": \\\"m_YvvcjPk1WLWgRC81r-3uuo7C0Yzumq799G5bxuQMfb60DiKETKhWSe2y5YYfVjcBMIUsvYeudjmkzpCaClqL8A\\\", \\\"text\\\": \\\"cho t\\\\u00f4i l\\\\u1ecbch tr\\\\u1ed1ng ng\\\\u00e0y mai\\\"}}, \\\"entry_time\\\": 1764863453160, \\\"page_id\\\": \\\"103575692353867\\\", \\\"original_event\\\": {\\\"body\\\": \\\"{\\\\\\\"object\\\\\\\":\\\\\\\"page\\\\\\\",\\\\\\\"entry\\\\\\\":[{\\\\\\\"time\\\\\\\":1764863453160,\\\\\\\"id\\\\\\\":\\\\\\\"103575692353867\\\\\\\",\\\\\\\"messaging\\\\\\\":[{\\\\\\\"sender\\\\\\\":{\\\\\\\"id\\\\\\...\n",
+            "ingestionTime": 1764863644762,
+            "eventId": "39357774291934978556721097282124373554511962743418781707"
+        },
+        {
+            "logStreamName": "2025/12/04/[$LATEST]1f8d1287dd934b44a9742c09841163d2",
+            "timestamp": 1764863637585,
+            "message": 

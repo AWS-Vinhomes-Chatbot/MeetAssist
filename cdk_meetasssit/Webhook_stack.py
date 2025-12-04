@@ -165,11 +165,12 @@ class UserMessengerBedrockStack(Stack):
                 "FB_PAGE_TOKEN_SECRET_ARN": fb_page_token_secret.secret_arn,
                 "SESSION_TABLE_NAME": session_table.table_name,
                 "TEXT2SQL_LAMBDA_NAME": "AppStack-TextToSQLFunction",
-                "BEDROCK_REGION": "ap-northeast-1",
+                "BEDROCK_REGION": "ap-northeast-1",  # Tokyo region for lowest latency
                 "BEDROCK_EMBED_REGION": "ap-northeast-1",
                 "SES_REGION": "ap-northeast-1",
                 "CACHE_SIMILARITY_THRESHOLD": "0.8",
-                "MAX_CONTEXT_TURNS": "3"
+                "MAX_CONTEXT_TURNS": "3",
+                "BEDROCK_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",  # Claude 3 Haiku - stable in Tokyo
             },
             log_retention=logs.RetentionDays.ONE_WEEK,
         )
@@ -183,12 +184,12 @@ class UserMessengerBedrockStack(Stack):
             )
         )
         
-        # Add Bedrock permissions - Only Haiku for chat responses (cost-effective)
-        # Sonnet is only used in text2sql_handler (vpc_stack)
+        # Add Bedrock permissions - Using Claude 3 Haiku in Tokyo region for lowest latency
         processor_role.add_to_policy(iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
             actions=["bedrock:InvokeModel"],
             resources=[
+                # Claude 3 Haiku - stable and fast in Tokyo region
                 f"arn:aws:bedrock:ap-northeast-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
                 # Amazon Titan Text Embeddings V2 (supports multilingual)
                 f"arn:aws:bedrock:ap-northeast-1::foundation-model/amazon.titan-embed-text-v2:0"

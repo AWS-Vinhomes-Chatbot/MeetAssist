@@ -14,10 +14,10 @@ auth = Authenticator()
 mess = MessengerService()
 session_service = SessionService()
 
-# Chat uses Haiku for fast responses and intent classification
+# Chat uses Claude 3 Haiku - stable and fast model available in Tokyo region
 bedrock_service = BedrockService(
     model_id="anthropic.claude-3-haiku-20240307-v1:0",
-    max_tokens=2048,
+    max_tokens=1500,
     temperature=0.7
 )
 
@@ -149,8 +149,32 @@ def process_chat_message(psid: str, user_question: str, original_event: dict):
         user_question: User's message text
         original_event: Original webhook event (for history tracking)
     """
-    # Check if user is authenticated
+    # Check if this is a new user (no session) - send welcome message
     session = session_service.get_session(psid)
+    is_new_user = session is None
+    
+    if is_new_user or user_question == "GET_STARTED":
+        welcome_message = (
+            "Xin chào! 👋\n\n"
+            "Mình là MeetAssist, mình sẽ hỗ trợ đặt lịch hẹn với tư vấn viên hướng nghiệp "
+            "và cung cấp các thông tin liên quan cho bạn.\n\n"
+            "Bạn có thể hỏi mình về:\n"
+            "• Lịch trống của tư vấn viên\n"
+            "• Đặt lịch hẹn tư vấn\n"
+            "• Thông tin về các chương trình hướng nghiệp\n\n"
+            "Để bắt đầu, vui lòng nhập email của bạn để xác thực. 📧"
+        )
+        mess.send_text_message(psid, welcome_message)
+        
+        # If GET_STARTED postback, just send welcome and return
+        if user_question == "GET_STARTED":
+            return
+        
+        # For new user with real message, continue to auth flow
+        # Refresh session check
+        session = session_service.get_session(psid)
+    
+    # Check if user is authenticated
     is_authenticated = session.get("is_authenticated", False) if session else False
     
     if not is_authenticated:
@@ -339,8 +363,7 @@ def _handle_text2sql(psid: str, user_question: str) -> tuple:
         sql_result = body.get("sql_result", [])
         schema_context = body.get("schema_context_text", "")
         
-        
-        # Convert sql_result to string for Bedrock
+        # Convert sql_result to string for Bedrock (bedrock_service handles empty results contextually)
         sql_result_str = json.dumps(sql_result, ensure_ascii=False, default=str)
         
         # Generate natural language response using Bedrock
@@ -351,13 +374,19 @@ def _handle_text2sql(psid: str, user_question: str) -> tuple:
             context=context
         )
         
-        # Build metadata for caching
-        metadata = {
-            "source": "text2sql",
-            "intent": "schedule_type",
-            "sql_result": sql_result_str,
-            "schema_context_text": schema_context
-        }
+        # Build metadata for caching - DON'T cache empty results
+        # so next query will hit DB again (data might have changed)
+        is_empty_result = not sql_result or (isinstance(sql_result, list) and len(sql_result) == 0)
+        if is_empty_result:
+            # Return None metadata to skip caching
+            metadata = None
+        else:
+            metadata = {
+                "source": "text2sql",
+                "intent": "schedule_type",
+                "sql_result": sql_result_str,
+                "schema_context_text": schema_context
+            }
         
         return response_text, metadata
         
@@ -498,7 +527,7 @@ def _handle_booking_query(psid: str, user_question: str, current_info: dict) -> 
             sql_result = body.get("sql_result", [])
             schema_context = body.get("schema_context_text", "")
             
-            # Generate natural language response
+            # Generate natural language response (handles empty results contextually)
             sql_result_str = json.dumps(sql_result, ensure_ascii=False, default=str)
             query_response = bedrock_service.get_answer_from_sql_results(
                 question=user_question,
@@ -859,10 +888,14 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
     """
     try:
         # Check if user wants to abort the current flow
-        abort_keywords = ["thôi", "bỏ qua", "dừng", "không làm nữa", "quay lại", "hủy bỏ"]
-        if any(kw in user_question.lower() for kw in abort_keywords):
+        abort_keywords = ["thôi", "bỏ qua", "dừng", "không làm nữa", "quay lại", "hủy bỏ", "hủy", "cancel", "stop", "thoát", "exit"]
+        msg_lower = user_question.lower().strip()
+        
+        # Check exact match or keyword in message
+        if msg_lower in abort_keywords or any(kw in msg_lower for kw in abort_keywords):
             session_service.reset_appointment_info(psid)
             session_service.set_booking_state(psid, "idle")
+            logger.info(f"User {psid} aborted booking flow with message: {user_question}")
             return "Đã hủy thao tác. Bạn có thể hỏi tôi bất cứ điều gì khác!"
         
         # Get current appointment info
@@ -881,7 +914,7 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
             # Check if user selected a slot number
             selection = _parse_appointment_selection(user_question)
             
-            if selection is not None:
+            if selection is not None:# khi ng dùng đã chọn số thứ tự slot
                 cached_slot = session_service.get_cached_slot_by_index(psid, selection)
                 
                 if cached_slot:
@@ -902,7 +935,7 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
                     date = cached_slot.get("date", "")
                     time = cached_slot.get("time", "")
                     
-                    return f"✅ Bạn đã chọn:\n📆 **{date}** lúc 🕐 **{time}**\n👨‍💼 Tư vấn viên: **{consultant}**\n\n👉 Vui lòng cho biết **họ tên** và **số điện thoại** của bạn."
+                    return f"✅ Bạn đã chọn:\n📆 **{date}** lúc 🕐 **{time}**\n👨‍💼 Tư vấn viên: **{consultant}**\n\n👉 Vui lòng cho biết **họ tên**, **số điện thoại** và **email** của bạn."
                 else:
                     return f"❌ Không tìm thấy slot số {selection}. Vui lòng chọn lại từ danh sách (1-10)."
             
@@ -1007,10 +1040,14 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
                 query_response = _handle_booking_query(psid, user_question, current_info)
                 return query_response
             
+            # Get conversation context for better extraction
+            context = session_service.get_context_for_llm(psid)
+            
             # Extract customer info from message
             extracted_info = bedrock_service.extract_appointment_info(
                 message=user_question,
-                current_info=current_info
+                current_info=current_info,
+                context=context
             )
             
             # Update appointment info
@@ -1039,9 +1076,11 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
                 return _execute_booking(psid, current_info)
             else:
                 # User might want to change something
+                context = session_service.get_context_for_llm(psid)
                 extracted_info = bedrock_service.extract_appointment_info(
                     message=user_question,
-                    current_info=current_info
+                    current_info=current_info,
+                    context=context
                 )
                 
                 if extracted_info:
@@ -1117,6 +1156,7 @@ def _generate_confirmation_message(appointment_info: dict) -> str:
     message = "📋 **Xác nhận thông tin đặt lịch:**\n\n"
     message += f"👤 Tên: {appointment_info.get('customer_name', 'N/A')}\n"
     message += f"📞 SĐT: {appointment_info.get('phone_number', 'N/A')}\n"
+    message += f"📧 Email: {appointment_info.get('email', 'N/A')}\n"
     message += f"📅 Ngày: {appointment_info.get('appointment_date', 'N/A')}\n"
     message += f"🕐 Giờ: {appointment_info.get('appointment_time', 'N/A')}\n"
     message += f"👨‍💼 Tư vấn viên: {appointment_info.get('consultant_name', 'N/A')}\n"
@@ -1304,10 +1344,10 @@ def _execute_booking(psid: str, appointment_info: dict) -> str:
         logger.info(f"Mutation response: {result}")
         
         if result.get("statusCode") == 200:
-            # Success - reset booking state
-            session_service.set_booking_state(psid, "completed")
+            # Success - reset booking state and appointment info
             session_service.reset_appointment_info(psid)
             session_service.set_booking_state(psid, "idle")
+            logger.info(f"Booking successful for {psid}, state reset to idle")
             
             # Parse success message from body (includes formatted appointment info)
             body = result.get("body", "{}")

@@ -13,11 +13,11 @@ Responsibilities:
 
 Usage:
     # Lambda 1 (Outside VPC) - Use faster/cheaper model for intent classification
-    bedrock_lite = BedrockService(model_id="anthropic.claude-3-haiku-20240307-v1:0")
+    bedrock_lite = BedrockService(model_id="anthropic.claude-haiku-4-5-20251001-v1:0")
     intent = bedrock_lite.classify_intent(message)
     
     # Lambda 2 (Inside VPC) - Use more powerful model for SQL generation
-    bedrock_pro = BedrockService(model_id="anthropic.claude-3-5-sonnet-20240620-v1:0")
+    bedrock_pro = BedrockService(model_id="anthropic.claude-3-5-sonnet-20241022-v2:0")
     sql = bedrock_pro.generate_sql(question, schema)
 """
 
@@ -48,13 +48,14 @@ def get_bedrock_client(region: str = None):
     This is reused across Lambda invocations to improve performance.
     
     Args:
-        region: AWS region (default from env or ap-northeast-1)
+        region: AWS region (default from env or ap-northeast-1 for Tokyo)
     
     Returns:
         boto3 Bedrock Runtime client instance
     """
     global _bedrock_client
     if _bedrock_client is None:
+        # Use Tokyo region for lowest latency
         region = region or os.environ.get("BEDROCK_REGION", "ap-northeast-1")
         _bedrock_client = boto3.client('bedrock-runtime', region_name=region)
         logger.info(f"Created Bedrock Runtime client for region: {region}")
@@ -111,12 +112,13 @@ class BedrockService:
         self.bedrock_runtime = bedrock_client if bedrock_client is not None else get_bedrock_client()
         
         # Model configuration with environment variable fallbacks
+        # Use Claude 3 Haiku - stable and fast, available in Tokyo region
         self.model_id = model_id or os.environ.get(
             "BEDROCK_MODEL_ID", 
-            "anthropic.claude-3-haiku-20240307-v1:0"
+            "anthropic.claude-3-haiku-20240307-v1:0"  # Claude 3 Haiku - stable in ap-northeast-1
         )
         
-        self.max_tokens = max_tokens or int(os.environ.get("BEDROCK_MAX_TOKENS", "2048"))
+        self.max_tokens = max_tokens or int(os.environ.get("BEDROCK_MAX_TOKENS", "1500"))  # Giới hạn để tránh vượt 2000 chars
         self.temperature = temperature if temperature is not None else float(os.environ.get("BEDROCK_TEMPERATURE", "0.5"))
         self.top_k = 250
         self.top_p = 0.9
@@ -201,19 +203,31 @@ class BedrockService:
     #                         Trả lời:"""
     #     response = self._invoke_bedrock(base_prompt)
     #     return response
-    def generate_sql_prompt(self, question: str, schema: str) -> str:
+    def generate_sql_prompt(self, question: str, schema: str, customer_id: str = None) -> str:
         """
         Generate SQL query from natural language question.
         
         Args:
             question: User's question in natural language
             schema: Database schema description (dynamically provided)
+            customer_id: Optional customer ID for user-specific queries (e.g., "lịch hẹn của tôi")
             
         Returns:
             SQL prompt text for Bedrock
         """
-        sql_prompt_text = f"""Bạn là chuyên gia SQL PostgreSQL bảo mật. Tạo query SELECT an toàn từ yêu cầu người dùng.
+        # Build customer context if available
+        customer_context = ""
+        if customer_id:
+            customer_context = f"""
+## THÔNG TIN USER HIỆN TẠI (ĐÃ XÁC THỰC):
+- customer_id: {customer_id}
+- Khi user hỏi "của tôi", "của mình", "lịch hẹn tôi", "cuộc hẹn của tôi" → dùng customerid = %s với param [{customer_id}]
+- Đây là thông tin đã xác thực, KHÔNG cần hỏi lại user
 
+"""
+        
+        sql_prompt_text = f"""Bạn là chuyên gia SQL PostgreSQL bảo mật. Tạo query SELECT an toàn từ yêu cầu người dùng.
+{customer_context}
 ## QUY TẮC (bắt buộc):
 - CHỈ SELECT, KHÔNG INSERT/UPDATE/DELETE → nếu yêu cầu thay đổi dữ liệu: trả <error>Không hỗ trợ thay đổi dữ liệu</error>
 - Dùng `%s` cho TẤT CẢ tham số từ USER INPUT (psycopg3), KHÔNG nối chuỗi
@@ -236,6 +250,17 @@ class BedrockService:
 - GROUP BY BẮT BUỘC: mọi cột trong SELECT mà KHÔNG nằm trong hàm aggregate PHẢI có trong GROUP BY
 - ORDER BY với aggregate: có thể ORDER BY theo alias (VD: ORDER BY total DESC)
 - Khi đếm distinct: dùng COUNT(DISTINCT col)
+
+## QUY TẮC NGÀY/THỜI GIAN (RẤT QUAN TRỌNG):
+- Ngày tương đối: dùng hàm PostgreSQL TRỰC TIẾP trong SQL, KHÔNG dùng placeholder %s
+  * "hôm nay", "today" → CURRENT_DATE
+  * "ngày mai", "tomorrow" → CURRENT_DATE + INTERVAL '1 day'
+  * "hôm qua", "yesterday" → CURRENT_DATE - INTERVAL '1 day'  
+  * "tuần này" → date >= date_trunc('week', CURRENT_DATE)
+  * "tháng này" → EXTRACT(MONTH FROM col) = EXTRACT(MONTH FROM CURRENT_DATE)
+  * "năm nay" → EXTRACT(YEAR FROM col) = EXTRACT(YEAR FROM CURRENT_DATE)
+- Ngày cụ thể từ user (VD: "ngày 15/12/2025") → dùng %s với format 'YYYY-MM-DD'
+- So sánh DATE với TIMESTAMP: dùng col::date hoặc DATE(col)
 
 ## FEW-SHOT EXAMPLES:
 
@@ -296,6 +321,24 @@ Question: Tư vấn viên nào có hơn 10 cuộc hẹn hoàn thành?
 <params>[10]</params>
 <validation>1 placeholder = 1 param ✓ | status cố định ✓ | số lượng từ user dùng %s ✓</validation>
 
+### Ví dụ 9 - QUERY DỮ LIỆU CỦA USER HIỆN TẠI:
+Schema: appointment(appointmentid, customerid, consultantid, date, time, status), consultant(consultantid, fullname), customer(customerid, fullname)
+THÔNG TIN USER HIỆN TẠI: customer_id = "fb_12345"
+Question: Cho xem lịch hẹn của tôi
+<reasoning>User hỏi "của tôi" → dùng customer_id từ context. Filter appointment theo customerid = %s.</reasoning>
+<sql>SELECT a.appointmentid, a.date, a.time, a.status, c.fullname as consultant_name FROM appointment a JOIN consultant c ON a.consultantid = c.consultantid WHERE a.customerid = %s ORDER BY a.date DESC, a.time DESC</sql>
+<params>["fb_12345"]</params>
+<validation>1 placeholder = 1 param ✓ | customer_id từ context ✓</validation>
+
+### Ví dụ 10 - QUERY "CỦA TÔI" KẾT HỢP ĐIỀU KIỆN:
+Schema: appointment(appointmentid, customerid, consultantid, date, time, status)
+THÔNG TIN USER HIỆN TẠI: customer_id = "fb_67890"
+Question: Lịch hẹn sắp tới của mình tuần này
+<reasoning>"của mình" → dùng customer_id. "sắp tới" → status='upcoming'. "tuần này" → date trong tuần hiện tại.</reasoning>
+<sql>SELECT appointmentid, date, time FROM appointment WHERE customerid = %s AND status = 'upcoming' AND date >= date_trunc('week', CURRENT_DATE) AND date < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days' ORDER BY date ASC, time ASC</sql>
+<params>["fb_67890"]</params>
+<validation>1 placeholder = 1 param ✓ | status cố định ✓ | customer_id từ context ✓</validation>
+
 
 ---
 
@@ -321,7 +364,7 @@ Question: Tư vấn viên nào có hơn 10 cuộc hẹn hoàn thành?
 
         return sql_prompt_text
 
-    def extract_appointment_info(self, message: str, current_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    def extract_appointment_info(self, message: str, current_info: Dict[str, Any] = None, context: str = "") -> Dict[str, Any]:
         """
         Extract appointment-related information from user message using Bedrock.
         
@@ -337,6 +380,7 @@ Question: Tư vấn viên nào có hơn 10 cuộc hẹn hoàn thành?
         Args:
             message: User's message to extract information from
             current_info: Current appointment info dictionary (to merge with)
+            context: Conversation context/history for better understanding
             
         Returns:
             Dictionary with extracted fields (only non-empty values)
@@ -345,54 +389,77 @@ Question: Tư vấn viên nào có hơn 10 cuộc hẹn hoàn thành?
             current_info = {}
         
         booking_action = current_info.get("booking_action", "create")
+        
+        # Build context section
+        context_section = ""
+        if context:
+            context_section = f"""
+## LỊCH SỬ HỘI THOẠI:
+{context}
+"""
             
         prompt = f"""Bạn là trợ lý AI chuyên trích xuất thông tin đặt lịch từ tin nhắn người dùng.
 
 ## HÀNH ĐỘNG HIỆN TẠI: {booking_action.upper()}
 
-## NHIỆM VỤ:
-Phân tích tin nhắn và trích xuất các thông tin sau (nếu có):
-
-1. **appointment_id**: Mã lịch hẹn (số, VD: 123, #456, lịch số 789)
-   - Trích xuất nếu user đề cập đến mã/số lịch hẹn cụ thể
-2. **customer_name**: Tên khách hàng (họ và tên đầy đủ)
-3. **phone_number**: Số điện thoại (format: 10-11 số, có thể có dấu + hoặc 84)
-4. **appointment_date**: Ngày hẹn (chuyển về format YYYY-MM-DD)
-   - Hôm nay: dùng ngày hiện tại (2025-12-01)
-   - Ngày mai: dùng ngày hiện tại + 1
-   - Thứ X: tính ngày cụ thể trong tuần này hoặc tuần sau
-5. **appointment_time**: Giờ hẹn (chuyển về format HH:MM, 24h)
-   - "9 giờ sáng" → "09:00"
-   - "2 giờ chiều" → "14:00"
-   - "8h30" → "08:30"
-6. **consultant_name**: Tên tư vấn viên (nếu có đề cập)
-7. **notes**: Ghi chú thêm (lý do hẹn, lý do hủy, yêu cầu đặc biệt, v.v.)
-
-## THÔNG TIN HIỆN TẠI (đã thu thập):
+## THÔNG TIN ĐÃ THU THẬP:
 {json.dumps(current_info, ensure_ascii=False, indent=2)}
-
-## TIN NHẮN NGƯỜI DÙNG:
+{context_section}
+## TIN NHẮN HIỆN TẠI CỦA USER:
 "{message}"
 
-## QUY TẮC:
-- CHỈ trích xuất thông tin được đề cập rõ ràng trong tin nhắn
-- KHÔNG đoán hoặc bịa thông tin không có
-- Nếu không tìm thấy thông tin nào → trả về {{}}
-- Phone number: chỉ trích xuất nếu có đủ 10-11 số
-- Ngày tháng: cố gắng chuyển về YYYY-MM-DD, nếu không rõ năm thì dùng 2025
-- appointment_id: trích xuất số từ "lịch hẹn số 123", "#123", "mã 123"
+## BƯỚC 1 - TÓM TẮT Ý ĐỊNH (BẮT BUỘC):
+Kết hợp LỊCH SỬ HỘI THOẠI + TIN NHẮN HIỆN TẠI để hiểu user thực sự muốn gì.
 
-## OUTPUT FORMAT (JSON thuần túy, không có text khác):
+**Ví dụ:**
+- Context: "Giờ làm việc buổi chiều của Nguyễn Văn A là 14:00-17:00"
+- User: "cho tôi đặt giờ đó đi"
+- → Tóm tắt: "User muốn đặt lịch lúc 14:00 với tư vấn viên Nguyễn Văn A"
+
+- Context: "Lịch hẹn #123 của bạn là ngày 05/12 lúc 9h sáng với Dr. Trần"  
+- User: "đổi sang ngày mai đi"
+- → Tóm tắt: "User muốn đổi lịch hẹn #123 sang ngày 06/12 (ngày mai)"
+
+- Context: "Tư vấn viên Lê Thị Mai có lịch trống 10:00 và 15:00 ngày mai"
+- User: "lấy slot 10h"
+- → Tóm tắt: "User muốn đặt lịch lúc 10:00 ngày mai với Lê Thị Mai"
+
+## BƯỚC 2 - TRÍCH XUẤT THÔNG TIN:
+Từ tóm tắt ở Bước 1, trích xuất vào các field:
+
+1. **appointment_id**: Mã lịch hẹn (số)
+2. **customer_name**: Tên khách hàng (họ và tên đầy đủ)
+3. **phone_number**: Số điện thoại (10-11 số)
+4. **email**: Email (format xxx@xxx.xxx)
+5. **appointment_date**: Ngày hẹn (YYYY-MM-DD)
+   - Hôm nay = 2025-12-04
+   - Ngày mai = 2025-12-05
+6. **appointment_time**: Giờ hẹn (HH:MM, 24h)
+   - "9 giờ sáng" → "09:00"
+   - "2 giờ chiều" → "14:00"
+7. **consultant_name**: Tên tư vấn viên
+8. **notes**: Ghi chú
+
+## QUY TẮC:
+- Thông tin có thể lấy từ CONTEXT hoặc TIN NHẮN HIỆN TẠI
+- Nếu user nói "giờ đó", "slot đó", "ngày đó" → tìm trong context
+- Nếu user nói "anh ấy", "chị ấy", "bác sĩ đó" → tìm tên trong context
+- KHÔNG bịa thông tin nếu không tìm thấy trong context lẫn message
+- Nếu không trích xuất được gì → trả về {{}}
+
+## OUTPUT FORMAT (JSON thuần túy):
 {{
-    "customer_name": "Nguyễn Văn A",
-    "phone_number": "0901234567",
-    "appointment_date": "2025-06-15",
-    "appointment_time": "14:00",
-    "consultant_name": "Dr. Trần B",
-    "notes": "Tư vấn về tài chính"
+    "_summary": "Tóm tắt ý định của user (bắt buộc)",
+    "customer_name": "...",
+    "phone_number": "...",
+    "email": "...",
+    "appointment_date": "YYYY-MM-DD",
+    "appointment_time": "HH:MM",
+    "consultant_name": "...",
+    "notes": "..."
 }}
 
-Lưu ý: CHỈ trả về các field có thông tin, không trả field với giá trị null/empty."""
+CHỈ trả về các field có giá trị thực, không trả field null/empty (trừ _summary)."""
 
         try:
             response_text = self._invoke_bedrock(prompt)
@@ -409,8 +476,13 @@ Lưu ý: CHỈ trả về các field có thông tin, không trả field với gi
             # Try to extract JSON from response
             extracted_info = json.loads(response_text)
             
-            # Filter out empty/null values
-            cleaned_info = {k: v for k, v in extracted_info.items() if v and str(v).strip()}
+            # Log the summary for debugging
+            if "_summary" in extracted_info:
+                logger.info(f"Extraction summary: {extracted_info['_summary']}")
+            
+            # Filter out empty/null values and remove _summary field
+            cleaned_info = {k: v for k, v in extracted_info.items() 
+                          if v and str(v).strip() and k != "_summary"}
             
             logger.info(f"Extracted appointment info: {cleaned_info}")
             return cleaned_info
@@ -438,6 +510,7 @@ Lưu ý: CHỈ trả về các field có thông tin, không trả field với gi
         field_descriptions = {
             "customer_name": "tên của bạn",
             "phone_number": "số điện thoại liên hệ",
+            "email": "email để nhận thông báo",
             "appointment_date": "ngày bạn muốn đặt lịch",
             "appointment_time": "giờ bạn muốn hẹn",
             "consultant_name": "tên tư vấn viên bạn muốn gặp",
@@ -504,40 +577,50 @@ Lưu ý: CHỈ trả về các field có thông tin, không trả field với gi
                 - booking_type: str - "consultation" or "event" or None
                 - confidence: float - 0.0 to 1.0
         """
-        prompt = f"""Bạn là hệ thống phân loại ý định đặt lịch RẤT CHÍNH XÁC.
+        prompt = f"""Bạn là hệ thống phân loại ý định đặt lịch CỰC KỲ NGHIÊM NGẶT.
 
-## NHIỆM VỤ:
-Xác định xem người dùng có THỰC SỰ muốn thực hiện hành động đặt/sửa/hủy lịch hay không.
+## NGUYÊN TẮC VÀNG: MẶC ĐỊNH LÀ KHÔNG ĐẶT LỊCH (wants_booking = false)
+Chỉ trả wants_booking = true khi có TỪ KHÓA RÕ RÀNG về đặt/sửa/hủy lịch.
 
-## ⚠️ QUAN TRỌNG - PHÂN BIỆT RÕ:
-
-### ❌ KHÔNG PHẢI ĐẶT LỊCH (wants_booking = false):
+## ❌ KHÔNG PHẢI ĐẶT LỊCH (wants_booking = false) - ĐA SỐ TRƯỜNG HỢP:
+- Chào hỏi: "hi", "hello", "xin chào", "chào bạn"
 - Hỏi thông tin: "có tư vấn viên nào?", "ai là tư vấn viên?", "bên bạn có những ai?"
-- Hỏi về dịch vụ: "có dịch vụ gì?", "giá bao nhiêu?", "làm việc mấy giờ?"
-- Hỏi về lịch trống: "lịch trống ngày nào?", "có slot nào không?", "khi nào rảnh?"
+- Hỏi dịch vụ: "có dịch vụ gì?", "giá bao nhiêu?", "làm việc mấy giờ?"
+- Hỏi lịch trống: "lịch trống ngày nào?", "có slot nào không?", "khi nào rảnh?", "lịch ngày mai"
 - Xem lịch: "xem lịch hẹn của tôi", "tôi có lịch gì?", "kiểm tra lịch"
-- Tán gẫu, chào hỏi, cảm ơn
+- Cung cấp thông tin: email, số điện thoại, tên (VD: "abc@gmail.com", "0901234567")
+- Xác nhận/Từ chối: "ok", "được", "không", "thôi"
+- Tán gẫu: "cảm ơn", "bye", "tạm biệt"
+- Câu hỏi chung: bất kỳ câu hỏi nào KHÔNG chứa từ khóa đặt lịch
 
-### ✅ ĐẶT LỊCH MỚI (wants_booking = true, booking_action = "create"):
-- Phải có từ khóa RÕ RÀNG: "đặt lịch", "book lịch", "đăng ký", "xin đặt", "muốn đặt"
-- Ví dụ: "tôi muốn đặt lịch", "cho tôi đặt lịch hẹn", "đăng ký tư vấn"
+## ✅ ĐẶT LỊCH MỚI (wants_booking = true, booking_action = "create"):
+PHẢI CÓ MỘT TRONG CÁC TỪ KHÓA SAU (không thể thiếu):
+- "đặt lịch", "book lịch", "đặt hẹn", "đăng ký lịch"
+- "tôi muốn đặt", "cho tôi đặt", "xin đặt"
+- "đăng ký tư vấn", "đăng ký cuộc hẹn"
 
-### ✅ CẬP NHẬT LỊCH (wants_booking = true, booking_action = "update"):
-- "đổi lịch", "dời lịch", "thay đổi lịch hẹn", "sửa lịch"
-- "chuyển sang ngày khác", "đổi giờ hẹn"
+## ✅ CẬP NHẬT LỊCH (wants_booking = true, booking_action = "update"):
+PHẢI CÓ từ khóa: "đổi lịch", "dời lịch", "sửa lịch", "thay đổi lịch", "chuyển lịch"
 
-### ✅ HỦY LỊCH (wants_booking = true, booking_action = "cancel"):
-- "hủy lịch", "cancel lịch", "không đến được", "hủy cuộc hẹn"
+## ✅ HỦY LỊCH (wants_booking = true, booking_action = "cancel"):
+PHẢI CÓ từ khóa: "hủy lịch", "cancel lịch", "hủy cuộc hẹn", "bỏ lịch"
 
 ## TIN NHẮN CẦN PHÂN LOẠI:
 "{message}"
 
-## QUY TẮC:
-- Nếu KHÔNG CHẮC CHẮN → wants_booking = false
-- Chỉ trả true khi có từ khóa đặt/sửa/hủy lịch RÕ RÀNG
-- Hỏi thông tin ≠ đặt lịch
+## QUY TẮC NGHIÊM NGẶT:
+1. KHÔNG có từ khóa đặt/sửa/hủy lịch → wants_booking = false
+2. Chỉ hỏi thông tin (không có hành động) → wants_booking = false  
+3. Cung cấp email/phone/tên → wants_booking = false (đây là cung cấp thông tin, không phải yêu cầu đặt lịch)
+4. Nếu không chắc chắn 100% → wants_booking = false
 
-## OUTPUT (JSON thuần túy, không giải thích):
+## OUTPUT (JSON thuần túy):
+{{
+    "wants_booking": false,
+    "booking_action": null,
+    "booking_type": null,
+    "confidence": 0.0
+}}
 {{
     "wants_booking": true/false,
     "booking_action": "create" hoặc "update" hoặc "cancel" hoặc null,
@@ -586,6 +669,7 @@ Xác định xem người dùng có THỰC SỰ muốn thực hiện hành độ
 | customer_id | {actual_customer_id} | customerid (VARCHAR) |
 | customer_name | {appointment_info.get('customer_name', 'N/A')} | fullname |
 | phone_number | {appointment_info.get('phone_number', 'N/A')} | phonenumber |
+| email | {appointment_info.get('email', 'N/A')} | email |
 | consultant_id | {appointment_info.get('consultant_id', 'N/A')} | consultantid (INT) |
 | appointment_date | {appointment_info.get('appointment_date', 'N/A')} | date (DATE) |
 | appointment_time | {appointment_info.get('appointment_time', 'N/A')} | time (TIME) |
@@ -618,11 +702,12 @@ Bước 1: Upsert customer (tạo mới nếu chưa có, cập nhật thông tin
 Bước 2: INSERT appointment với status='pending'
 ```sql
 WITH upsert_customer AS (
-    INSERT INTO customer (customerid, fullname, phonenumber) 
-    VALUES (%s, %s, %s)
+    INSERT INTO customer (customerid, fullname, phonenumber, email) 
+    VALUES (%s, %s, %s, %s)
     ON CONFLICT (customerid) DO UPDATE SET 
         fullname = COALESCE(EXCLUDED.fullname, customer.fullname),
-        phonenumber = COALESCE(EXCLUDED.phonenumber, customer.phonenumber)
+        phonenumber = COALESCE(EXCLUDED.phonenumber, customer.phonenumber),
+        email = COALESCE(EXCLUDED.email, customer.email)
     RETURNING customerid
 )
 INSERT INTO appointment (customerid, consultantid, date, time, status)
@@ -630,7 +715,7 @@ SELECT %s, %s, %s, %s, 'pending'
 FROM upsert_customer
 RETURNING appointmentid
 ```
-params: [customer_id, customer_name, phone_number, customer_id, consultant_id, date, time]
+params: [customer_id, customer_name, phone_number, email, customer_id, consultant_id, date, time]
 
 ### UPDATE (Đổi lịch):
 Bước 1: UPDATE appointment cũ → status='cancelled'
@@ -804,12 +889,13 @@ params: [appointment_id, customer_id]
 
         return sql_query, params, operation
 
-    def get_sql_from_bedrock(self, query: str, schema: str) -> Union[Tuple[str, List], Dict[str, Any]]:
+    def get_sql_from_bedrock(self, query: str, schema: str, customer_id: str = None) -> Union[Tuple[str, List], Dict[str, Any]]:
         """Generate SQL from a natural language query using Bedrock.
 
         Args:
             query (str): The natural language query.
             schema (str): The database schema.
+            customer_id (str): Optional customer ID for user-specific queries (e.g., "lịch hẹn của tôi").
 
         Returns:
             Union[Tuple[str, List], Dict[str, Any]]: The generated SQL statement and parameters or an error response dictionary.
@@ -817,8 +903,8 @@ params: [appointment_id, customer_id]
         Raises:
             Exception: If there is an error generating SQL from the query.
         """
-        # Generate the prompt for Bedrock
-        sql_prompt = self.generate_sql_prompt(query, schema)
+        # Generate the prompt for Bedrock (with customer_id if available)
+        sql_prompt = self.generate_sql_prompt(query, schema, customer_id)
         logger.debug(f"SQL prompt: {sql_prompt[:200]}...")
         
         # Call Bedrock to generate SQL
@@ -960,26 +1046,65 @@ params: [appointment_id, customer_id]
                 column_names=column_names
             )
         """
+        # Check if results are empty (handles string "[]", empty list, None, etc.)
+        is_empty = False
         if not results:
-            return "Không tìm thấy kết quả nào cho câu hỏi của bạn."
+            is_empty = True
+        elif isinstance(results, str):
+            try:
+                parsed = json.loads(results)
+                if not parsed or (isinstance(parsed, list) and len(parsed) == 0):
+                    is_empty = True
+            except:
+                if results.strip() in ['[]', 'null', 'None', '']:
+                    is_empty = True
+        elif isinstance(results, list) and len(results) == 0:
+            is_empty = True
         
-        # Format results as readable table for LLM
-        
-        
-        # Create formatting prompt
-        prompt = f"""Bạn là một chuyên viên tư vấn đặt lịch hẹn thân thiện.
-                Kết quả truy vấn từ hệ thống:{results}
+        # Create formatting prompt - different prompt for empty vs non-empty results
+        if is_empty:
+            prompt = f"""Bạn là một chuyên viên tư vấn đặt lịch hẹn thân thiện.
+                Câu hỏi của khách hàng: {question}
                 Thông tin schema: {schema}
-                Câu hỏi của khách hàng: {question}"""
-        if context:
-            prompt += f"""Lịch sử hội thoại:{context}"""
-        prompt += f"""
-                Hãy trả lời câu hỏi dựa trên kết quả trên theo phong cách tư vấn viên:
-                - Trả lời bằng tiếng Việt tự nhiên, thân thiện
+                Kết quả truy vấn: KHÔNG TÌM THẤY DỮ LIỆU PHÙ HỢP
+                """
+            if context:
+                prompt += f"""Lịch sử hội thoại:{context}"""
+            prompt += f"""
+                Hãy trả lời khách hàng một cách thân thiện rằng KHÔNG TÌM THẤY thông tin họ yêu cầu.
+                Quan trọng:
+                - Trả lời cụ thể theo ngữ cảnh câu hỏi (ví dụ: "Hiện tại chưa có lịch hẹn nào của [tên] vào [ngày]")
+                - KHÔNG bịa đặt hay đoán thông tin
+                - KHÔNG nói có dữ liệu khi không có
+                - Có thể gợi ý khách hỏi theo cách khác hoặc thử thời gian/ngày khác
                 - KHÔNG đề cập đến SQL, database, schema hay bất kỳ khía cạnh kỹ thuật nào
-                - Tóm tắt thông tin quan trọng một cách rõ ràng
-                - Nếu có nhiều kết quả, liệt kê ngắn gọn
                 Trả lời:"""
+        else:
+            # Build context hint for understanding user message
+            context_hint = ""
+            if context:
+                context_hint = f"""
+## NGỮ CẢNH (chỉ để hiểu câu hỏi, KHÔNG dùng để trả lời):
+{context}
+---
+"""
+            prompt = f"""Bạn là một chuyên viên tư vấn đặt lịch hẹn thân thiện.
+{context_hint}
+## CÂU HỎI HIỆN TẠI CỦA KHÁCH HÀNG:
+"{question}"
+
+## KẾT QUẢ TRUY VẤN TỪ DATABASE (DỮ LIỆU DUY NHẤT ĐỂ TRẢ LỜI):
+{results}
+
+## QUY TẮC:
+1. **CHỈ trả lời dựa trên KẾT QUẢ TRUY VẤN** - đây là dữ liệu chính xác từ database
+2. Ngữ cảnh chỉ giúp hiểu user muốn gì, KHÔNG dùng thông tin từ ngữ cảnh để trả lời
+3. Trả lời bằng tiếng Việt tự nhiên, thân thiện, đúng trọng tâm câu hỏi
+4. KHÔNG đề cập đến SQL, database, schema hay bất kỳ khía cạnh kỹ thuật nào
+5. Liệt kê đầy đủ thông tin từ kết quả nếu có nhiều rows
+6. **QUAN TRỌNG: Câu trả lời PHẢI NGẮN GỌN, TỐI ĐA 1500 ký tự**
+
+Trả lời:"""
 
         response = self._invoke_bedrock(prompt)
         return response
