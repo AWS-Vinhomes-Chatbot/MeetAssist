@@ -4,7 +4,7 @@ import Button from '../components/Button';
 import Modal from '../components/Modal';
 import { Consultant, ConsultantSchedule } from '../types';
 import { 
-  getConsultants, 
+  getConsultantsWithAccountStatus, 
   createConsultant, 
   updateConsultant, 
   deleteConsultant, 
@@ -12,7 +12,11 @@ import {
   createConsultantSchedule,
   updateConsultantSchedule,
   deleteConsultantSchedule,
-  generateConsultantSchedule
+  generateConsultantSchedule,
+  createConsultantAccount,
+  syncAllConsultantAccounts,
+  resetConsultantPassword,
+  deleteConsultantAccount
 } from '../services/api.service';
 
 export default function ConsultantsPage() {
@@ -58,6 +62,13 @@ export default function ConsultantsPage() {
   });
   const [generating, setGenerating] = useState(false);
 
+  // Account management state
+  const [syncing, setSyncing] = useState(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [accountModalType, setAccountModalType] = useState<'create' | 'reset'>('create');
+  const [selectedAccountConsultant, setSelectedAccountConsultant] = useState<Consultant | null>(null);
+  const [accountActionLoading, setAccountActionLoading] = useState(false);
+
   useEffect(() => {
     fetchConsultants();
   }, []);
@@ -65,13 +76,136 @@ export default function ConsultantsPage() {
   const fetchConsultants = async () => {
     try {
       setLoading(true);
-      const response = await getConsultants({ limit: 100, offset: 0 });
+      const response = await getConsultantsWithAccountStatus({ limit: 100, offset: 0 });
       setConsultants(response.consultants || []);
     } catch (error) {
       console.error('Error fetching consultants:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  // ==================== ACCOUNT MANAGEMENT HANDLERS ====================
+
+  const handleSyncAllAccounts = async () => {
+    if (!globalThis.confirm('Đồng bộ tất cả consultant accounts với Cognito?\nSẽ tạo account cho các consultant chưa có.')) {
+      return;
+    }
+    
+    setSyncing(true);
+    try {
+      const result = await syncAllConsultantAccounts();
+      alert(`✅ Sync hoàn tất!\n• Tạo mới: ${result.created}\n• Đã tồn tại: ${result.already_exists}\n• Bỏ qua: ${result.skipped}\n• Lỗi: ${result.failed}`);
+      fetchConsultants(); // Refresh list
+    } catch (error) {
+      console.error('Error syncing accounts:', error);
+      alert('❌ Không thể đồng bộ accounts');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleCreateAccount = (consultant: Consultant) => {
+    setSelectedAccountConsultant(consultant);
+    setAccountModalType('create');
+    setIsAccountModalOpen(true);
+  };
+
+  const handleResetPassword = (consultant: Consultant) => {
+    setSelectedAccountConsultant(consultant);
+    setAccountModalType('reset');
+    setIsAccountModalOpen(true);
+  };
+
+  const handleAccountAction = async () => {
+    if (!selectedAccountConsultant) return;
+    
+    setAccountActionLoading(true);
+    try {
+      if (accountModalType === 'create') {
+        const result = await createConsultantAccount({
+          email: selectedAccountConsultant.email,
+          consultant_id: selectedAccountConsultant.consultantid,
+          fullname: selectedAccountConsultant.fullname,
+          send_email: true
+        });
+        
+        if (result.success) {
+          alert(`✅ Tạo account thành công!\nEmail với mật khẩu tạm đã được gửi đến ${selectedAccountConsultant.email}`);
+        } else {
+          throw new Error(result.error || 'Failed to create account');
+        }
+      } else {
+        const result = await resetConsultantPassword(selectedAccountConsultant.email);
+        
+        if (result.success) {
+          alert(`✅ Reset password thành công!\nMật khẩu mới: ${result.temp_password}\n\nHãy gửi mật khẩu này cho consultant.`);
+        } else {
+          throw new Error(result.error || 'Failed to reset password');
+        }
+      }
+      
+      setIsAccountModalOpen(false);
+      fetchConsultants(); // Refresh list
+    } catch (error) {
+      console.error('Account action error:', error);
+      alert(`❌ Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setAccountActionLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async (consultant: Consultant) => {
+    if (!globalThis.confirm(`Xóa Cognito account của ${consultant.fullname}?\nConsultant sẽ không thể đăng nhập Consultant Portal.`)) {
+      return;
+    }
+    
+    try {
+      const result = await deleteConsultantAccount(consultant.email);
+      if (result.success) {
+        alert('✅ Đã xóa account');
+        fetchConsultants();
+      } else {
+        throw new Error(result.error || 'Failed to delete account');
+      }
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      alert(`❌ Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const getAccountStatusBadge = (consultant: Consultant) => {
+    const status = (consultant as any).account_status;
+    
+    if (!status || !status.exists) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+          ❌ Chưa có
+        </span>
+      );
+    }
+    
+    if (status.status === 'CONFIRMED') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+          ✅ Active
+        </span>
+      );
+    }
+    
+    if (status.status === 'FORCE_CHANGE_PASSWORD') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+          ⚠️ Pending
+        </span>
+      );
+    }
+    
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+        {status.status}
+      </span>
+    );
   };
 
   const handleCreate = () => {
@@ -260,11 +394,21 @@ export default function ConsultantsPage() {
     <div className="min-h-screen">
       <Header 
         title="Quản lý Tư vấn viên" 
-        subtitle="Manage consultant profiles and information"
+        subtitle="Manage consultant profiles and portal accounts"
         actions={
-          <Button onClick={handleCreate} icon="➕">
-            Add Consultant
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              onClick={handleSyncAllAccounts} 
+              variant="secondary"
+              disabled={syncing}
+              icon={syncing ? "⏳" : "🔄"}
+            >
+              {syncing ? 'Syncing...' : 'Sync Accounts'}
+            </Button>
+            <Button onClick={handleCreate} icon="➕">
+              Add Consultant
+            </Button>
+          </div>
         }
       />
 
@@ -289,8 +433,8 @@ export default function ConsultantsPage() {
                     <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Full Name</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden md:table-cell">Email</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden lg:table-cell">Phone</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Account</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden xl:table-cell">Specialties</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden lg:table-cell">Join Date</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-300">Actions</th>
                   </tr>
                 </thead>
@@ -331,16 +475,44 @@ export default function ConsultantsPage() {
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden lg:table-cell">
                         {consultant.phonenumber || '-'}
                       </td>
+                      <td className="px-4 py-3">
+                        {getAccountStatusBadge(consultant)}
+                      </td>
                       <td className="px-4 py-3 hidden xl:table-cell">
                         <div className="max-w-[200px] truncate text-gray-500 dark:text-gray-400">
                           {consultant.specialties || '-'}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden lg:table-cell">
-                        {consultant.joindate || '-'}
-                      </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1">
+                          {/* Account actions */}
+                          {!(consultant as any).account_status?.exists ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCreateAccount(consultant); }}
+                              className="p-2 rounded-lg text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
+                              title="Tạo account"
+                            >
+                              🔑
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleResetPassword(consultant); }}
+                                className="p-2 rounded-lg text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
+                                title="Reset password"
+                              >
+                                🔄
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteAccount(consultant); }}
+                                className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                title="Xóa account"
+                              >
+                                🚫
+                              </button>
+                            </>
+                          )}
+                          {/* Edit/Delete consultant */}
                           <button
                             onClick={(e) => { e.stopPropagation(); handleEdit(consultant); }}
                             className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
@@ -781,6 +953,77 @@ export default function ConsultantsPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Account Management Modal */}
+      <Modal
+        isOpen={isAccountModalOpen}
+        onClose={() => setIsAccountModalOpen(false)}
+        title={accountModalType === 'create' ? '🔑 Tạo Account Portal' : '🔄 Reset Password'}
+        size="sm"
+      >
+        <div className="space-y-4">
+          {selectedAccountConsultant && (
+            <>
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  {selectedAccountConsultant.imageurl ? (
+                    <img 
+                      src={selectedAccountConsultant.imageurl} 
+                      alt={selectedAccountConsultant.fullname}
+                      className="h-12 w-12 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400 font-medium text-lg">
+                      {selectedAccountConsultant.fullname.charAt(0)}
+                    </div>
+                  )}
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-white">
+                      {selectedAccountConsultant.fullname}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {selectedAccountConsultant.email}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {accountModalType === 'create' ? (
+                <div className="text-sm text-gray-600 dark:text-gray-300">
+                  <p className="mb-2">📧 Một email với mật khẩu tạm thời sẽ được gửi đến consultant.</p>
+                  <p>Consultant cần đổi mật khẩu khi đăng nhập lần đầu.</p>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-600 dark:text-gray-300">
+                  <p className="mb-2">🔐 Mật khẩu mới sẽ được tạo và hiển thị sau khi hoàn tất.</p>
+                  <p>Consultant cần đổi mật khẩu khi đăng nhập tiếp theo.</p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setIsAccountModalOpen(false)}
+                >
+                  Hủy
+                </Button>
+                <Button 
+                  onClick={handleAccountAction} 
+                  disabled={accountActionLoading}
+                >
+                  {accountActionLoading 
+                    ? '⏳ Đang xử lý...' 
+                    : accountModalType === 'create' 
+                      ? '✅ Tạo Account' 
+                      : '🔄 Reset Password'
+                  }
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       </Modal>
     </div>
   );

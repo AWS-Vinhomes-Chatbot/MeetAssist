@@ -55,14 +55,20 @@ dashboard_stack = DashboardStack(
     data_stored_bucket=vpc_stack.data_stored_bucket,
     readonly_secret=vpc_stack.readonly_secret,
     rds_instance=vpc_stack.rds_instance,
-    user_pool=auth_stack.user_pool,  
+    user_pool=auth_stack.admin_user_pool,  # Admin User Pool
+    consultant_user_pool=auth_stack.consultant_user_pool,  # Consultant User Pool for API access
     env=env
 )
 frontend_stack = FrontendStack(
     app, "FrontendStack",
-    user_pool=auth_stack.user_pool,
-    cognito_domain_url=auth_stack.cognito_domain_url,  
-    api_endpoint=dashboard_stack.api_endpoint,  
+    # Admin
+    admin_user_pool=auth_stack.admin_user_pool,
+    admin_cognito_domain_url=auth_stack.admin_cognito_domain_url,
+    # Consultant
+    consultant_user_pool=auth_stack.consultant_user_pool,
+    consultant_cognito_domain_url=auth_stack.consultant_cognito_domain_url,
+    # Shared
+    api_endpoint=dashboard_stack.api_endpoint,
     env=env
 )
 # Webhook stack for Messenger chat handler (outside VPC)
@@ -70,8 +76,7 @@ frontend_stack = FrontendStack(
 webhook_stack = UserMessengerBedrockStack(app, "WebhookStack", env=env)
 webhook_stack.add_dependency(text2sql_stack)
 
-
-# Temporarily disabled cdk-nag for faster deployment
-# TODO: Re-enable and add proper NagSuppressions before production
+# cdk-nag disabled for faster development iteration
+# Uncomment below for production security checks:
 # cdk.Aspects.of(app).add(AwsSolutionsChecks(verbose=True))
 app.synth()

@@ -1314,3 +1314,329 @@ class Admin:
             self.conn.rollback()
             self._log_error(f"Error generating schedule: {str(e)}")
             return {"success": False, "error": str(e)}
+
+    # ==================== CONSULTANT PORTAL METHODS ====================
+    
+    def get_consultant_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Get consultant by email address
+        Used for mapping Cognito user to consultant_id
+        
+        Args:
+            email: Consultant's email address
+            
+        Returns:
+            Dict with consultant data or None if not found
+        """
+        query = """
+            SELECT consultantid, fullname, email, phonenumber, imageurl,
+                   specialties, qualifications, joindate, createdat, isdisabled
+            FROM consultant
+            WHERE email = %s AND isdisabled = false
+        """
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, [email])
+            row = cur.fetchone()
+            
+            if not row:
+                self._log_info(f"Consultant not found for email: {email}")
+                return None
+            
+            columns = [desc[0] for desc in cur.description]
+            consultant = dict(zip(columns, row))
+            
+        self._log_info(f"Found consultant for email {email}: {consultant['consultantid']}")
+        return consultant
+
+    def get_my_schedule(
+        self, 
+        consultant_id: int,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        is_available: Optional[bool] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Get schedule for a specific consultant (used by Consultant Portal)
+        
+        Args:
+            consultant_id: ID of the consultant
+            date_from: Filter from date (YYYY-MM-DD)
+            date_to: Filter to date (YYYY-MM-DD)
+            is_available: Filter by availability
+            limit: Max records to return
+            offset: Records to skip
+            
+        Returns:
+            Dict with schedule list and pagination info
+        """
+        query = """
+            SELECT scheduleid, consultantid, date, starttime, endtime, isavailable
+            FROM consultantschedule
+            WHERE consultantid = %s
+        """
+        params = [consultant_id]
+        
+        if date_from:
+            query += " AND date >= %s"
+            params.append(date_from)
+        
+        if date_to:
+            query += " AND date <= %s"
+            params.append(date_to)
+        
+        if is_available is not None:
+            query += " AND isavailable = %s"
+            params.append(is_available)
+        
+        query += " ORDER BY date ASC, starttime ASC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+            
+            # Count total
+            count_query = "SELECT COUNT(*) FROM consultantschedule WHERE consultantid = %s"
+            count_params = [consultant_id]
+            if date_from:
+                count_query += " AND date >= %s"
+                count_params.append(date_from)
+            if date_to:
+                count_query += " AND date <= %s"
+                count_params.append(date_to)
+            if is_available is not None:
+                count_query += " AND isavailable = %s"
+                count_params.append(is_available)
+            
+            cur.execute(count_query, count_params)
+            total = cur.fetchone()[0]
+        
+        schedules = [dict(zip(columns, row)) for row in rows]
+        self._log_info(f"Retrieved {len(schedules)} schedule slots for consultant {consultant_id}")
+        
+        return {
+            "schedules": schedules,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+
+    def get_my_appointments(
+        self, 
+        consultant_id: int,
+        status: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Get appointments for a specific consultant (used by Consultant Portal)
+        
+        Args:
+            consultant_id: ID of the consultant
+            status: Filter by status
+            date_from: Filter from date
+            date_to: Filter to date
+            limit: Max records
+            offset: Skip records
+            
+        Returns:
+            Dict with appointments list and pagination info
+        """
+        query = """
+            SELECT 
+                a.appointmentid, a.customerid, a.consultantid,
+                a.date, a.time, a.duration, a.meetingurl,
+                a.status, a.description, a.createdat, a.updatedat,
+                c.fullname as customer_name, c.email as customer_email, c.phonenumber as customer_phone
+            FROM appointment a
+            JOIN customer c ON a.customerid = c.customerid
+            WHERE a.consultantid = %s
+        """
+        params = [consultant_id]
+        
+        if status:
+            query += " AND a.status = %s"
+            params.append(status)
+        
+        if date_from:
+            query += " AND a.date >= %s"
+            params.append(date_from)
+        
+        if date_to:
+            query += " AND a.date <= %s"
+            params.append(date_to)
+        
+        query += " ORDER BY a.date DESC, a.time DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
+        with self.conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+            
+            # Count query
+            count_query = "SELECT COUNT(*) FROM appointment WHERE consultantid = %s"
+            count_params = [consultant_id]
+            if status:
+                count_query += " AND status = %s"
+                count_params.append(status)
+            if date_from:
+                count_query += " AND date >= %s"
+                count_params.append(date_from)
+            if date_to:
+                count_query += " AND date <= %s"
+                count_params.append(date_to)
+            
+            cur.execute(count_query, count_params)
+            total = cur.fetchone()[0]
+        
+        appointments = [dict(zip(columns, row)) for row in rows]
+        self._log_info(f"Retrieved {len(appointments)} appointments for consultant {consultant_id}")
+        
+        return {
+            "appointments": appointments,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+
+    def confirm_appointment(self, consultant_id: int, appointment_id: int) -> Dict[str, Any]:
+        """
+        Confirm an appointment (change status from pending to confirmed)
+        Only the assigned consultant can confirm their own appointments
+        
+        Args:
+            consultant_id: ID of the consultant (for authorization)
+            appointment_id: ID of the appointment to confirm
+            
+        Returns:
+            Dict with success status and updated appointment
+        """
+        # Verify ownership and current status
+        check_query = """
+            SELECT appointmentid, status FROM appointment 
+            WHERE appointmentid = %s AND consultantid = %s
+        """
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(check_query, [appointment_id, consultant_id])
+                row = cur.fetchone()
+                
+                if not row:
+                    return {
+                        "success": False,
+                        "error": "Appointment not found or not assigned to you"
+                    }
+                
+                current_status = row[1]
+                if current_status != 'pending':
+                    return {
+                        "success": False,
+                        "error": f"Cannot confirm appointment with status '{current_status}'. Only pending appointments can be confirmed."
+                    }
+                
+                # Update status
+                update_query = """
+                    UPDATE appointment 
+                    SET status = 'confirmed', updatedat = NOW()
+                    WHERE appointmentid = %s
+                    RETURNING appointmentid, status, updatedat
+                """
+                cur.execute(update_query, [appointment_id])
+                updated = cur.fetchone()
+                self.conn.commit()
+                
+            self._log_info(f"Consultant {consultant_id} confirmed appointment {appointment_id}")
+            return {
+                "success": True,
+                "appointment_id": updated[0],
+                "status": updated[1],
+                "updated_at": str(updated[2]),
+                "message": "Appointment confirmed successfully"
+            }
+            
+        except Exception as e:
+            self.conn.rollback()
+            self._log_error(f"Error confirming appointment: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    def deny_appointment(self, consultant_id: int, appointment_id: int, reason: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Deny/Cancel an appointment (change status from pending to cancelled)
+        Only the assigned consultant can deny their own appointments
+        
+        Args:
+            consultant_id: ID of the consultant (for authorization)
+            appointment_id: ID of the appointment to deny
+            reason: Optional reason for cancellation
+            
+        Returns:
+            Dict with success status
+        """
+        # Verify ownership and current status
+        check_query = """
+            SELECT appointmentid, status FROM appointment 
+            WHERE appointmentid = %s AND consultantid = %s
+        """
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(check_query, [appointment_id, consultant_id])
+                row = cur.fetchone()
+                
+                if not row:
+                    return {
+                        "success": False,
+                        "error": "Appointment not found or not assigned to you"
+                    }
+                
+                current_status = row[1]
+                if current_status not in ['pending', 'confirmed']:
+                    return {
+                        "success": False,
+                        "error": f"Cannot cancel appointment with status '{current_status}'"
+                    }
+                
+                # Update status and add reason to description if provided
+                if reason:
+                    update_query = """
+                        UPDATE appointment 
+                        SET status = 'cancelled', 
+                            description = COALESCE(description, '') || ' [Cancelled by consultant: ' || %s || ']',
+                            updatedat = NOW()
+                        WHERE appointmentid = %s
+                        RETURNING appointmentid, status, updatedat
+                    """
+                    cur.execute(update_query, [reason, appointment_id])
+                else:
+                    update_query = """
+                        UPDATE appointment 
+                        SET status = 'cancelled', updatedat = NOW()
+                        WHERE appointmentid = %s
+                        RETURNING appointmentid, status, updatedat
+                    """
+                    cur.execute(update_query, [appointment_id])
+                
+                updated = cur.fetchone()
+                self.conn.commit()
+                
+            self._log_info(f"Consultant {consultant_id} cancelled appointment {appointment_id}")
+            return {
+                "success": True,
+                "appointment_id": updated[0],
+                "status": updated[1],
+                "updated_at": str(updated[2]),
+                "message": "Appointment cancelled successfully"
+            }
+            
+        except Exception as e:
+            self.conn.rollback()
+            self._log_error(f"Error cancelling appointment: {str(e)}")
+            return {"success": False, "error": str(e)}

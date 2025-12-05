@@ -12,6 +12,7 @@ interface AppConfig {
   cognitoDomain: string;
   cloudFrontUrl: string;
   apiEndpoint: string;
+  syncApiEndpoint?: string;
   demoMode?: boolean;
 }
 
@@ -67,6 +68,11 @@ export const config = {
       adminPath: '/admin',
       crawlerPath: '/crawler',
     };
+  },
+  
+  // Consultant Sync API (outside VPC)
+  get syncApiEndpoint(): string {
+    return getConfig('syncApiEndpoint') || '';
   },
   
   // OAuth URLs (derived from cloudFrontUrl)

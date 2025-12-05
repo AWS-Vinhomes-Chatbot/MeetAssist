@@ -1,5 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
@@ -13,6 +17,7 @@ export default defineConfig({
   resolve: {
     alias: {
       './runtimeConfig': './runtimeConfig.browser',
+      '@shared': resolve(__dirname, '../../shared'),
     },
   },
   
@@ -29,6 +34,8 @@ export default defineConfig({
   },
   
   build: {
+    outDir: '../../dist/admin',
+    emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {
       output: {
