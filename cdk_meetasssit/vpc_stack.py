@@ -56,7 +56,7 @@ class VpcStack(Stack):
 
         vpc = ec2.Vpc(
             self, "AppVPC",
-            max_azs=2, # Giới hạn 1 AZ để tiết kiệm chi phí cho ví dụ này
+            max_azs=2, 
             subnet_configuration=[
                 ec2.SubnetConfiguration(
                     name="PrivateIsolated", subnet_type=ec2.SubnetType.PRIVATE_ISOLATED, cidr_mask=24

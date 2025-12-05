@@ -19,7 +19,7 @@ from typing import Dict, Any
 import boto3
 
 from services.archive import ArchiveService
-from services.postgres import PostgreSQLService
+from repositories.postgres import PostgreSQLService
 from util.lambda_logger import create_logger
 
 # Setup

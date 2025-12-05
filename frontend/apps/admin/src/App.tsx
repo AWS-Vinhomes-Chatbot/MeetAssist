@@ -7,8 +7,6 @@ import { Bot, LogIn, Loader2, AlertTriangle } from 'lucide-react';
 
 // Lazy load pages
 const OverviewPage = React.lazy(() => import('./pages/OverviewPage'));
-const ConversationsPage = React.lazy(() => import('./pages/ConversationsPage'));
-const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
 const ConsultantsPage = React.lazy(() => import('./pages/ConsultantsPage'));
 const AppointmentsPage = React.lazy(() => import('./pages/AppointmentsPage'));
 
@@ -171,8 +169,6 @@ function App() {
           >
             <Routes>
               <Route path="/" element={<OverviewPage />} />
-              <Route path="/conversations" element={<ConversationsPage />} />
-              <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/consultants" element={<ConsultantsPage />} />
               <Route path="/appointments" element={<AppointmentsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />

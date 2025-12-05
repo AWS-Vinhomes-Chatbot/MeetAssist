@@ -28,7 +28,6 @@ export default function ConsultantsPage() {
     fullname: '',
     email: '',
     phonenumber: '',
-    imageurl: '',
     specialties: '',
     qualifications: '',
     joindate: ''
@@ -214,7 +213,6 @@ export default function ConsultantsPage() {
       fullname: '',
       email: '',
       phonenumber: '',
-      imageurl: '',
       specialties: '',
       qualifications: '',
       joindate: new Date().toISOString().split('T')[0]
@@ -228,7 +226,6 @@ export default function ConsultantsPage() {
       fullname: consultant.fullname,
       email: consultant.email,
       phonenumber: consultant.phonenumber || '',
-      imageurl: consultant.imageurl || '',
       specialties: consultant.specialties || '',
       qualifications: consultant.qualifications || '',
       joindate: consultant.joindate || ''
@@ -450,17 +447,9 @@ export default function ConsultantsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          {consultant.imageurl ? (
-                            <img 
-                              src={consultant.imageurl} 
-                              alt={consultant.fullname}
-                              className="h-8 w-8 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="h-8 w-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400 font-medium text-sm">
-                              {consultant.fullname.charAt(0)}
-                            </div>
-                          )}
+                          <div className="h-8 w-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400 font-medium text-sm">
+                            {consultant.fullname.charAt(0)}
+                          </div>
                           <div>
                             <span className="font-medium text-gray-900 dark:text-white">
                               {consultant.fullname}
@@ -599,19 +588,6 @@ export default function ConsultantsPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Image URL
-            </label>
-            <input
-              type="url"
-              value={formData.imageurl}
-              onChange={(e) => setFormData({ ...formData, imageurl: e.target.value })}
-              className="input"
-              placeholder="https://..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Specialties
             </label>
             <textarea
@@ -661,17 +637,9 @@ export default function ConsultantsPage() {
           {selectedConsultant && (
             <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
               <div className="flex items-center gap-4">
-                {selectedConsultant.imageurl ? (
-                  <img 
-                    src={selectedConsultant.imageurl} 
-                    alt={selectedConsultant.fullname}
-                    className="h-16 w-16 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="h-16 w-16 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xl">
-                    {selectedConsultant.fullname.charAt(0)}
-                  </div>
-                )}
+                <div className="h-16 w-16 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400 font-bold text-xl">
+                  {selectedConsultant.fullname.charAt(0)}
+                </div>
                 <div>
                   <h3 className="font-semibold text-gray-900 dark:text-white">{selectedConsultant.fullname}</h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400">{selectedConsultant.email}</p>
@@ -730,7 +698,9 @@ export default function ConsultantsPage() {
                             ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
                             : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
                         }`}>
-                          {schedule.isavailable ? '✓ Có thể đặt' : '✗ Không khả dụng'}
+                          {schedule.isavailable 
+                            ? '✓ Có thể đặt' 
+                            : '✗ Không khả dụng'}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -967,17 +937,9 @@ export default function ConsultantsPage() {
             <>
               <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <div className="flex items-center gap-3">
-                  {selectedAccountConsultant.imageurl ? (
-                    <img 
-                      src={selectedAccountConsultant.imageurl} 
-                      alt={selectedAccountConsultant.fullname}
-                      className="h-12 w-12 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="h-12 w-12 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400 font-medium text-lg">
-                      {selectedAccountConsultant.fullname.charAt(0)}
-                    </div>
-                  )}
+                  <div className="h-12 w-12 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400 font-medium text-lg">
+                    {selectedAccountConsultant.fullname.charAt(0)}
+                  </div>
                   <div>
                     <p className="font-medium text-gray-900 dark:text-white">
                       {selectedAccountConsultant.fullname}

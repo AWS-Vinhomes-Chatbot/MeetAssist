@@ -98,7 +98,6 @@ export interface Consultant {
   fullname: string;
   email: string;
   phonenumber?: string;
-  imageurl?: string;
   specialties?: string;
   qualifications?: string;
   joindate?: string;
@@ -143,6 +142,8 @@ export interface ConsultantSchedule {
   starttime: string;
   endtime: string;
   isavailable: boolean;
+  has_appointment?: boolean;
+  appointment_status?: string;
   consultant_name?: string;
   consultant_email?: string;
 }

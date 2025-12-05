@@ -172,7 +172,7 @@ const OverviewPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+    <div className="flex-1 bg-slate-50 dark:bg-slate-900">
       <Header
         title="Dashboard Overview"
         subtitle="Tổng quan hoạt động hệ thống MeetAssist"

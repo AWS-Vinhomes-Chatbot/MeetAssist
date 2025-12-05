@@ -182,7 +182,6 @@ export async function createConsultant(data: {
   fullname: string;
   email: string;
   phonenumber?: string;
-  imageurl?: string;
   specialties?: string;
   qualifications?: string;
   joindate?: string;
@@ -206,7 +205,6 @@ export async function updateConsultant(consultantid: number, data: {
   fullname?: string;
   email?: string;
   phonenumber?: string;
-  imageurl?: string;
   specialties?: string;
   qualifications?: string;
   joindate?: string;

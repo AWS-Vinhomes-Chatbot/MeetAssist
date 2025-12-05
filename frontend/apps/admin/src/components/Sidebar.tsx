@@ -4,8 +4,6 @@ import clsx from 'clsx';
 import { useTheme } from '../contexts/ThemeContext';
 import {
   LayoutDashboard,
-  MessageSquare,
-  BarChart3,
   Users,
   Calendar,
   Sun,
@@ -30,8 +28,6 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { path: '/', icon: <LayoutDashboard size={20} />, label: 'Overview' },
-  { path: '/conversations', icon: <MessageSquare size={20} />, label: 'Conversations' },
-  { path: '/analytics', icon: <BarChart3 size={20} />, label: 'Analytics' },
   { path: '/consultants', icon: <Users size={20} />, label: 'Consultants' },
   { path: '/appointments', icon: <Calendar size={20} />, label: 'Appointments' },
 ];

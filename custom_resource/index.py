@@ -61,7 +61,6 @@ CREATE TABLE IF NOT EXISTS Consultant (
     FullName VARCHAR(100) NOT NULL,
     Email VARCHAR(100) NOT NULL UNIQUE,
     PhoneNumber VARCHAR(20),
-    ImageUrl VARCHAR(255),
     Specialties TEXT,
     Qualifications TEXT,
     JoinDate DATE NOT NULL,
@@ -224,14 +223,28 @@ def import_csv_to_table(conn, bucket_name, s3_key, table_name):
         inserted_count = 0
         error_count = 0
         
+        # Phone columns that may lose leading zero when edited in Excel
+        phone_columns = {'phonenumber', 'phone', 'mobile', 'tel'}
+        
         for row in rows:
             values = []
             for col in columns_to_insert:
                 value = row.get(col, "")
+                col_lower = col.lower()
+                
                 # Xử lý giá trị rỗng
                 if value == "" or value is None:
                     values.append(None)
                 else:
+                    # Fix phone number missing leading zero (Excel strips it)
+                    # VN phone: 9 digits without 0 -> add 0 prefix
+                    if col_lower in phone_columns and isinstance(value, str):
+                        # Remove any ="..." wrapper if present
+                        if value.startswith('="') and value.endswith('"'):
+                            value = value[2:-1]
+                        # Add leading 0 if 9 digits (VN mobile without 0)
+                        if value.isdigit() and len(value) == 9:
+                            value = '0' + value
                     values.append(value)
             
             try:

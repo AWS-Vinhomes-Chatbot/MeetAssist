@@ -124,7 +124,6 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
                 fullname=body.get('fullname'),
                 email=body.get('email'),
                 phonenumber=body.get('phonenumber'),
-                imageurl=body.get('imageurl'),
                 specialties=body.get('specialties'),
                 qualifications=body.get('qualifications'),
                 joindate=body.get('joindate')
@@ -137,7 +136,6 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
                 fullname=body.get('fullname'),
                 email=body.get('email'),
                 phonenumber=body.get('phonenumber'),
-                imageurl=body.get('imageurl'),
                 specialties=body.get('specialties'),
                 qualifications=body.get('qualifications'),
                 joindate=body.get('joindate'),
