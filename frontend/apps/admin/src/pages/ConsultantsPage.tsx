@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
+import Pagination from '../components/Pagination';
 import { Consultant, ConsultantSchedule } from '../types';
 import { 
   getConsultantsWithAccountStatus, 
@@ -12,12 +13,19 @@ import {
   createConsultantSchedule,
   updateConsultantSchedule,
   deleteConsultantSchedule,
-  generateConsultantSchedule,
   createConsultantAccount,
   syncAllConsultantAccounts,
   resetConsultantPassword,
   deleteConsultantAccount
 } from '../services/api.service';
+
+// Helper function to get local date string (YYYY-MM-DD) instead of UTC
+const getLocalDateString = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export default function ConsultantsPage() {
   const [consultants, setConsultants] = useState<Consultant[]>([]);
@@ -42,24 +50,24 @@ export default function ConsultantsPage() {
   // Schedule form state
   const [isScheduleFormOpen, setIsScheduleFormOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ConsultantSchedule | null>(null);
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
   const [scheduleFormData, setScheduleFormData] = useState({
     date: '',
-    start_time: '',
-    end_time: '',
-    is_available: true
+    slots: [] as number[], // Array of selected slot ids (1-8)
+    is_available: true // Only used for editing
   });
 
-  // Generate schedule state
-  const [isGenerateFormOpen, setIsGenerateFormOpen] = useState(false);
-  const [generateFormData, setGenerateFormData] = useState({
-    date_from: '',
-    date_to: '',
-    work_start: '09:00',
-    work_end: '18:00',
-    slot_duration: 60,
-    exclude_weekends: true
-  });
-  const [generating, setGenerating] = useState(false);
+  // Fixed time slots
+  const TIME_SLOTS = [
+    { id: 1, label: 'Slot 1: 08:00 - 09:00', start: '08:00', end: '09:00' },
+    { id: 2, label: 'Slot 2: 09:15 - 10:15', start: '09:15', end: '10:15' },
+    { id: 3, label: 'Slot 3: 10:30 - 11:30', start: '10:30', end: '11:30' },
+    { id: 4, label: 'Slot 4: 13:30 - 14:30', start: '13:30', end: '14:30' },
+    { id: 5, label: 'Slot 5: 14:45 - 15:45', start: '14:45', end: '15:45' },
+    { id: 6, label: 'Slot 6: 16:00 - 17:00', start: '16:00', end: '17:00' },
+    { id: 7, label: 'Slot 7: 19:00 - 20:00', start: '19:00', end: '20:00' },
+    { id: 8, label: 'Slot 8: 20:30 - 21:30', start: '20:30', end: '21:30' },
+  ];
 
   // Account management state
   const [syncing, setSyncing] = useState(false);
@@ -68,9 +76,36 @@ export default function ConsultantsPage() {
   const [selectedAccountConsultant, setSelectedAccountConsultant] = useState<Consultant | null>(null);
   const [accountActionLoading, setAccountActionLoading] = useState(false);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [scheduleCurrentPage, setScheduleCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  // Paginated data
+  const paginatedConsultants = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return consultants.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [consultants, currentPage]);
+
+  const totalConsultantPages = Math.ceil(consultants.length / ITEMS_PER_PAGE);
+
+  const paginatedSchedules = useMemo(() => {
+    const startIndex = (scheduleCurrentPage - 1) * ITEMS_PER_PAGE;
+    return schedules.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [schedules, scheduleCurrentPage]);
+
+  const totalSchedulePages = Math.ceil(schedules.length / ITEMS_PER_PAGE);
+
   useEffect(() => {
     fetchConsultants();
   }, []);
+
+  // Reset to page 1 when schedule modal opens
+  useEffect(() => {
+    if (isScheduleModalOpen) {
+      setScheduleCurrentPage(1);
+    }
+  }, [isScheduleModalOpen]);
 
   const fetchConsultants = async () => {
     try {
@@ -215,7 +250,7 @@ export default function ConsultantsPage() {
       phonenumber: '',
       specialties: '',
       qualifications: '',
-      joindate: new Date().toISOString().split('T')[0]
+      joindate: getLocalDateString()
     });
     setIsModalOpen(true);
   };
@@ -281,9 +316,8 @@ export default function ConsultantsPage() {
   const handleAddSchedule = () => {
     setEditingSchedule(null);
     setScheduleFormData({
-      date: new Date().toISOString().split('T')[0],
-      start_time: '09:00',
-      end_time: '17:00',
+      date: getLocalDateString(),
+      slots: [],
       is_available: true
     });
     setIsScheduleFormOpen(true);
@@ -291,10 +325,11 @@ export default function ConsultantsPage() {
 
   const handleEditSchedule = (schedule: ConsultantSchedule) => {
     setEditingSchedule(schedule);
+    // Find matching slot based on start time
+    const matchingSlot = TIME_SLOTS.find(s => s.start === schedule.starttime.substring(0, 5));
     setScheduleFormData({
       date: schedule.date,
-      start_time: schedule.starttime.substring(0, 5),
-      end_time: schedule.endtime.substring(0, 5),
+      slots: matchingSlot ? [matchingSlot.id] : [],
       is_available: schedule.isavailable
     });
     setIsScheduleFormOpen(true);
@@ -319,66 +354,55 @@ export default function ConsultantsPage() {
 
   const handleScheduleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedConsultant) return;
+    if (!selectedConsultant || scheduleSubmitting) return;
+    
+    if (scheduleFormData.slots.length === 0) {
+      alert('Vui lòng chọn ít nhất một khung giờ');
+      return;
+    }
 
+    setScheduleSubmitting(true);
     try {
       if (editingSchedule) {
-        await updateConsultantSchedule(editingSchedule.scheduleid, scheduleFormData);
+        // Edit mode: only one slot
+        const selectedSlot = TIME_SLOTS.find(s => s.id === scheduleFormData.slots[0]);
+        if (selectedSlot) {
+          await updateConsultantSchedule(editingSchedule.scheduleid, {
+            date: scheduleFormData.date,
+            start_time: selectedSlot.start,
+            end_time: selectedSlot.end,
+            is_available: scheduleFormData.is_available
+          });
+        }
+        setIsScheduleFormOpen(false);
       } else {
-        await createConsultantSchedule({
-          consultant_id: selectedConsultant.consultantid,
-          ...scheduleFormData
+        // Create mode: multiple slots, always is_available = true
+        const createPromises = scheduleFormData.slots.map(slotId => {
+          const slot = TIME_SLOTS.find(s => s.id === slotId);
+          if (!slot) return Promise.resolve();
+          return createConsultantSchedule({
+            consultant_id: selectedConsultant.consultantid,
+            date: scheduleFormData.date,
+            start_time: slot.start,
+            end_time: slot.end,
+            is_available: true
+          });
+        });
+        await Promise.all(createPromises);
+        // Reset form but keep modal open for adding more
+        setScheduleFormData({
+          ...scheduleFormData,
+          slots: []
         });
       }
-      setIsScheduleFormOpen(false);
       // Refresh schedules
       const response = await getScheduleByConsultant(selectedConsultant.consultantid);
       setSchedules(response.schedules || []);
     } catch (error) {
       console.error('Error saving schedule:', error);
-      alert('Không thể lưu lịch');
-    }
-  };
-
-  const handleOpenGenerateForm = () => {
-    // Default: next 7 days
-    const today = new Date();
-    const nextWeek = new Date(today);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    
-    setGenerateFormData({
-      date_from: today.toISOString().split('T')[0],
-      date_to: nextWeek.toISOString().split('T')[0],
-      work_start: '09:00',
-      work_end: '18:00',
-      slot_duration: 60,
-      exclude_weekends: true
-    });
-    setIsGenerateFormOpen(true);
-  };
-
-  const handleGenerateSchedule = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedConsultant) return;
-
-    setGenerating(true);
-    try {
-      const result = await generateConsultantSchedule({
-        consultant_id: selectedConsultant.consultantid,
-        ...generateFormData
-      });
-      
-      setIsGenerateFormOpen(false);
-      alert(`✅ ${result.message}`);
-      
-      // Refresh schedules
-      const response = await getScheduleByConsultant(selectedConsultant.consultantid);
-      setSchedules(response.schedules || []);
-    } catch (error) {
-      console.error('Error generating schedule:', error);
-      alert('Không thể tạo lịch tự động');
+      alert('Không thể lưu lịch. Lịch có thể đã tồn tại.');
     } finally {
-      setGenerating(false);
+      setScheduleSubmitting(false);
     }
   };
 
@@ -436,7 +460,7 @@ export default function ConsultantsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {consultants.map((consultant) => (
+                  {paginatedConsultants.map((consultant) => (
                     <tr 
                       key={consultant.consultantid} 
                       className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer"
@@ -523,6 +547,13 @@ export default function ConsultantsPage() {
                 </tbody>
               </table>
             </div>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalConsultantPages}
+              onPageChange={setCurrentPage}
+              totalItems={consultants.length}
+              itemsPerPage={ITEMS_PER_PAGE}
+            />
           </div>
         )}
       </div>
@@ -651,9 +682,6 @@ export default function ConsultantsPage() {
               <Button onClick={handleAddSchedule} icon="➕" size="sm">
                 Thêm lịch
               </Button>
-              <Button onClick={handleOpenGenerateForm} variant="secondary" icon="🔄" size="sm">
-                Tạo tự động
-              </Button>
             </div>
           )}
 
@@ -669,8 +697,9 @@ export default function ConsultantsPage() {
               <p className="text-sm mt-2">Nhấn "Thêm lịch" để tạo lịch mới</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-gray-800/50">
                     <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Ngày</th>
@@ -681,7 +710,7 @@ export default function ConsultantsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {schedules.map((schedule) => (
+                  {paginatedSchedules.map((schedule) => (
                     <tr key={schedule.scheduleid} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                       <td className="px-4 py-3 text-gray-900 dark:text-white">
                         {schedule.date}
@@ -724,8 +753,16 @@ export default function ConsultantsPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+                </table>
+              </div>
+              <Pagination
+                currentPage={scheduleCurrentPage}
+                totalPages={totalSchedulePages}
+                onPageChange={setScheduleCurrentPage}
+                totalItems={schedules.length}
+                itemsPerPage={ITEMS_PER_PAGE}
+              />
+            </>
           )}
         </div>
       </Modal>
@@ -752,174 +789,74 @@ export default function ConsultantsPage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="schedule-start" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Giờ bắt đầu *
-              </label>
-              <input
-                id="schedule-start"
-                type="time"
-                required
-                value={scheduleFormData.start_time}
-                onChange={(e) => setScheduleFormData({ ...scheduleFormData, start_time: e.target.value })}
-                className="input"
-              />
-            </div>
-            <div>
-              <label htmlFor="schedule-end" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Giờ kết thúc *
-              </label>
-              <input
-                id="schedule-end"
-                type="time"
-                required
-                value={scheduleFormData.end_time}
-                onChange={(e) => setScheduleFormData({ ...scheduleFormData, end_time: e.target.value })}
-                className="input"
-              />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              Khung giờ * {!editingSchedule && <span className="text-xs text-gray-500">(có thể chọn nhiều)</span>}
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {TIME_SLOTS.map((slot) => {
+                const isSelected = scheduleFormData.slots.includes(slot.id);
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    onClick={() => {
+                      if (editingSchedule) {
+                        // Edit mode: single selection
+                        setScheduleFormData({ ...scheduleFormData, slots: [slot.id] });
+                      } else {
+                        // Create mode: toggle multi-selection
+                        const newSlots = isSelected
+                          ? scheduleFormData.slots.filter(id => id !== slot.id)
+                          : [...scheduleFormData.slots, slot.id];
+                        setScheduleFormData({ ...scheduleFormData, slots: newSlots });
+                      }
+                    }}
+                    className={`p-3 text-sm rounded-lg border-2 transition-all text-left ${
+                      isSelected
+                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'
+                        : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500 text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    <div className="font-medium">{slot.start} - {slot.end}</div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={scheduleFormData.is_available}
-                onChange={(e) => setScheduleFormData({ ...scheduleFormData, is_available: e.target.checked })}
-                className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-              />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Có thể đặt lịch
-              </span>
-            </label>
-          </div>
+          {editingSchedule && (
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={scheduleFormData.is_available}
+                  onChange={(e) => setScheduleFormData({ ...scheduleFormData, is_available: e.target.checked })}
+                  className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Có thể đặt lịch
+                </span>
+              </label>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <Button
               type="button"
               variant="secondary"
               onClick={() => setIsScheduleFormOpen(false)}
+              disabled={scheduleSubmitting}
             >
-              Hủy
+              {editingSchedule ? 'Hủy' : 'Đóng'}
             </Button>
-            <Button type="submit">
-              {editingSchedule ? 'Cập nhật' : 'Tạo mới'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Generate Schedule Modal */}
-      <Modal
-        isOpen={isGenerateFormOpen}
-        onClose={() => setIsGenerateFormOpen(false)}
-        title="Tạo lịch tự động"
-        size="md"
-      >
-        <form onSubmit={handleGenerateSchedule} className="space-y-4">
-          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-300">
-            💡 Hệ thống sẽ tự động tạo các slot theo khung giờ được chọn
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="gen-date-from" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Từ ngày *
-              </label>
-              <input
-                id="gen-date-from"
-                type="date"
-                required
-                value={generateFormData.date_from}
-                onChange={(e) => setGenerateFormData({ ...generateFormData, date_from: e.target.value })}
-                className="input"
-              />
-            </div>
-            <div>
-              <label htmlFor="gen-date-to" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Đến ngày *
-              </label>
-              <input
-                id="gen-date-to"
-                type="date"
-                required
-                value={generateFormData.date_to}
-                onChange={(e) => setGenerateFormData({ ...generateFormData, date_to: e.target.value })}
-                className="input"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="gen-work-start" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Giờ bắt đầu làm việc
-              </label>
-              <input
-                id="gen-work-start"
-                type="time"
-                value={generateFormData.work_start}
-                onChange={(e) => setGenerateFormData({ ...generateFormData, work_start: e.target.value })}
-                className="input"
-              />
-            </div>
-            <div>
-              <label htmlFor="gen-work-end" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Giờ kết thúc làm việc
-              </label>
-              <input
-                id="gen-work-end"
-                type="time"
-                value={generateFormData.work_end}
-                onChange={(e) => setGenerateFormData({ ...generateFormData, work_end: e.target.value })}
-                className="input"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="gen-slot-duration" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Thời lượng mỗi slot (phút)
-            </label>
-            <select
-              id="gen-slot-duration"
-              value={generateFormData.slot_duration}
-              onChange={(e) => setGenerateFormData({ ...generateFormData, slot_duration: parseInt(e.target.value) })}
-              className="input"
-            >
-              <option value={30}>30 phút</option>
-              <option value={45}>45 phút</option>
-              <option value={60}>1 tiếng</option>
-              <option value={90}>1 tiếng 30 phút</option>
-              <option value={120}>2 tiếng</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={generateFormData.exclude_weekends}
-                onChange={(e) => setGenerateFormData({ ...generateFormData, exclude_weekends: e.target.checked })}
-                className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-              />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Bỏ qua cuối tuần (Thứ 7, Chủ nhật)
-              </span>
-            </label>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setIsGenerateFormOpen(false)}
-            >
-              Hủy
-            </Button>
-            <Button type="submit" disabled={generating}>
-              {generating ? '⏳ Đang tạo...' : '🔄 Tạo lịch'}
+            <Button type="submit" disabled={scheduleSubmitting}>
+              {scheduleSubmitting 
+                ? 'Đang lưu...' 
+                : editingSchedule 
+                  ? 'Cập nhật' 
+                  : `Thêm ${scheduleFormData.slots.length > 0 ? `(${scheduleFormData.slots.length})` : ''}`
+              }
             </Button>
           </div>
         </form>

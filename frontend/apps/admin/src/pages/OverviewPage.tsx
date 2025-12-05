@@ -222,47 +222,7 @@ const OverviewPage: React.FC = () => {
           />
         </div>
 
-        {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Appointment Status Pie Chart */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Trạng thái lịch hẹn</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Phân bố theo trạng thái</p>
-            {appointmentStatusData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie
-                    data={appointmentStatusData}
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={55}
-                    outerRadius={85}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-                    {appointmentStatusData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    formatter={(value) => (
-                      <span className="text-slate-600 dark:text-slate-400 text-sm">{value}</span>
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-[260px] text-slate-400">
-                Chưa có dữ liệu
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Bottom Row - Quick Stats */}
+        {/* Charts Row - Quick Stats on left, Pie Chart on right */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Quick Stats */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
@@ -321,6 +281,43 @@ const OverviewPage: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Appointment Status Pie Chart */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Trạng thái lịch hẹn</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Phân bố theo trạng thái</p>
+            {appointmentStatusData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie
+                    data={appointmentStatusData}
+                    cx="50%"
+                    cy="45%"
+                    innerRadius={55}
+                    outerRadius={85}
+                    paddingAngle={4}
+                    dataKey="value"
+                  >
+                    {appointmentStatusData.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Legend
+                    verticalAlign="bottom"
+                    height={36}
+                    formatter={(value) => (
+                      <span className="text-slate-600 dark:text-slate-400 text-sm">{value}</span>
+                    )}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[260px] text-slate-400">
+                Chưa có dữ liệu
+              </div>
+            )}
           </div>
         </div>
 

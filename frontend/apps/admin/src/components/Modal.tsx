@@ -1,5 +1,4 @@
 import React, { ReactNode, useEffect } from 'react';
-import { Button } from './Button';
 
 interface ModalProps {
   isOpen: boolean;
@@ -70,17 +69,11 @@ export const Modal: React.FC<ModalProps> = ({
       {/* Modal */}
       <div className={`relative z-10 w-full ${sizeClasses[size]} rounded-xl bg-white dark:bg-gray-800 shadow-2xl animate-scale-in max-h-[90vh] flex flex-col`}>
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center p-5 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
             <span className="text-2xl">{iconMap[type]}</span>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h2>
           </div>
-          <button
-            onClick={onClose}
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          >
-            <span className="text-xl">×</span>
-          </button>
         </div>
         
         {/* Content */}
@@ -92,13 +85,6 @@ export const Modal: React.FC<ModalProps> = ({
         {actions && (
           <div className="flex justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-700">
             {actions}
-          </div>
-        )}
-        {!actions && (
-          <div className="flex justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-700">
-            <Button onClick={onClose} variant="secondary">
-              Close
-            </Button>
           </div>
         )}
       </div>

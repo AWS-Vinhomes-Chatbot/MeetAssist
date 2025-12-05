@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
+import Pagination from '../components/Pagination';
 import { Appointment, Consultant, Customer } from '../types';
 import { 
   getAppointments, 
@@ -11,6 +12,14 @@ import {
   getConsultants,
   getCustomers
 } from '../services/api.service';
+
+// Helper function to get local date string (YYYY-MM-DD) instead of UTC
+const getLocalDateString = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export default function AppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -31,10 +40,27 @@ export default function AppointmentsPage() {
     description: ''
   });
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  // Paginated data
+  const paginatedAppointments = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return appointments.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [appointments, currentPage]);
+
+  const totalPages = Math.ceil(appointments.length / ITEMS_PER_PAGE);
+
   useEffect(() => {
     fetchAppointments();
     fetchConsultants();
     fetchCustomers();
+  }, [statusFilter]);
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
   }, [statusFilter]);
 
   const fetchAppointments = async () => {
@@ -75,7 +101,7 @@ export default function AppointmentsPage() {
     setFormData({
       consultantid: 0,
       customerid: 0,
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(),
       time: '09:00',
       duration: 60,
       meetingurl: '',
@@ -189,7 +215,7 @@ export default function AppointmentsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {appointments.map((appointment) => {
+                  {paginatedAppointments.map((appointment) => {
                     const consultant = consultants.find(c => c.consultantid === appointment.consultantid);
                     const customer = customers.find(c => c.customerid === appointment.customerid);
                     
@@ -240,6 +266,13 @@ export default function AppointmentsPage() {
                 </tbody>
               </table>
             </div>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={appointments.length}
+              itemsPerPage={ITEMS_PER_PAGE}
+            />
           </div>
         )}
       </div>
