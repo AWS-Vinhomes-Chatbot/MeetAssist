@@ -27,8 +27,9 @@ def handler(event, context):
     
     if event['RequestType'] == 'Delete':
         print("Delete request - no action needed")
+        # IMPORTANT: Must return the same PhysicalResourceId that was used during Create
         return {
-            "PhysicalResourceId": "config-generator",
+            "PhysicalResourceId": event.get('PhysicalResourceId', 'config-generator'),
             "Data": {"Message": "Delete completed"}
         }
     
