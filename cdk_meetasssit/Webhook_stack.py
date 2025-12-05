@@ -37,6 +37,7 @@ class UserMessengerBedrockStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.DESTROY,
             point_in_time_recovery=True,
+            time_to_live_attribute="ttl",  # Auto-delete sessions after 1h
         )
 
         # 2) SQS FIFO Queue for message deduplication and async processing
@@ -170,7 +171,8 @@ class UserMessengerBedrockStack(Stack):
                 "SES_REGION": "ap-northeast-1",
                 "CACHE_SIMILARITY_THRESHOLD": "0.8",
                 "MAX_CONTEXT_TURNS": "3",
-                "BEDROCK_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",  # Claude 3 Haiku - stable in Tokyo
+                "BEDROCK_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",  # Claude 3 Haiku - fast for general tasks
+                "BEDROCK_SONNET_MODEL_ID": "anthropic.claude-3-5-sonnet-20240620-v1:0",  # Claude 3.5 Sonnet - on-demand in Tokyo
             },
             log_retention=logs.RetentionDays.ONE_WEEK,
         )
@@ -184,13 +186,15 @@ class UserMessengerBedrockStack(Stack):
             )
         )
         
-        # Add Bedrock permissions - Using Claude 3 Haiku in Tokyo region for lowest latency
+        # Add Bedrock permissions - Using Claude 3 Haiku and 3.5 Sonnet in Tokyo region
         processor_role.add_to_policy(iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
             actions=["bedrock:InvokeModel"],
             resources=[
-                # Claude 3 Haiku - stable and fast in Tokyo region
+                # Claude 3 Haiku - stable and fast for general tasks
                 f"arn:aws:bedrock:ap-northeast-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+                # Claude 3.5 Sonnet - more accurate for extraction tasks, on-demand in Tokyo
+                f"arn:aws:bedrock:ap-northeast-1::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0",
                 # Amazon Titan Text Embeddings V2 (supports multilingual)
                 f"arn:aws:bedrock:ap-northeast-1::foundation-model/amazon.titan-embed-text-v2:0"
             ],

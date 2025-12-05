@@ -610,8 +610,11 @@ class SessionService:
                 history = history[-self.MAX_CONTEXT_TURNS:]
                 logger.info(f"Trimmed context for {psid}, kept last {self.MAX_CONTEXT_TURNS} turns")
             
+            # Convert all floats to Decimal before saving to DynamoDB
+            history_for_dynamo = _convert_floats_to_decimal(history)
+            
             self.dynamodb_repo.update_item(key={"psid": psid}, updates={
-                "conversation_context": history
+                "conversation_context": history_for_dynamo
             })
             return True
         except Exception as e:
@@ -830,10 +833,11 @@ class SessionService:
         
         Valid states:
         - "idle": No active booking
-        - "selecting_slot": CREATE - choosing available slot
+        - "selecting_slot": CREATE - choosing available slot (after collecting consultant/date/time)
         - "selecting_appointment": UPDATE/CANCEL - choosing which appointment to modify
         - "selecting_new_slot": UPDATE - choosing new slot after selecting appointment
-        - "collecting": Collecting additional info (name, phone for CREATE)
+        - "collecting": Collecting slot info (consultant, date, time)
+        - "collecting_customer": Collecting customer info (name, phone, email) after selecting slot
         - "confirming": Waiting for user confirmation
         - "confirming_restart": Asking if user wants to continue or restart
         - "completed": Booking finished
@@ -845,7 +849,7 @@ class SessionService:
         Returns:
             True if successful
         """
-        valid_states = ["idle", "selecting_slot", "selecting_appointment", "selecting_new_slot", "collecting", "confirming", "confirming_restart", "completed"]
+        valid_states = ["idle", "selecting_slot", "selecting_appointment", "selecting_new_slot", "collecting", "collecting_customer", "confirming", "confirming_restart", "completed"]
         if state not in valid_states:
             logger.error(f"Invalid booking state: {state}")
             return False
@@ -944,7 +948,7 @@ class SessionService:
             appointment_info = self.get_appointment_info(psid)
             booking_state = appointment_info.get("booking_state", "idle")
             
-            if booking_state in ["selecting_slot", "selecting_appointment", "selecting_new_slot", "collecting", "confirming"]:
+            if booking_state in ["selecting_slot", "selecting_appointment", "selecting_new_slot", "collecting", "collecting_customer", "confirming"]:
                 return True, appointment_info
             
             return False, {}

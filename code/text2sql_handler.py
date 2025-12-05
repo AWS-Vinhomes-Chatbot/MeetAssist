@@ -193,10 +193,25 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         sql_result = text_to_sql.get_sql_from_bedrock(full_prompt, schema_context_text, customer_id=psid)
         
         # Check if SQL generation failed (returns dict with error)
-        if isinstance(sql_result, dict) and sql_result.get("statusCode") == 500:
+        if isinstance(sql_result, dict):
+            status_code = sql_result.get("statusCode", 500)
+            
+            # Throttling - return user-friendly message
+            if status_code == 503:
+                logger.warning("Bedrock throttling - returning friendly message to user")
+                return {
+                    "statusCode": 503,
+                    "body": json.dumps({
+                        "response": sql_result.get("body", {}).get("response", "⏳ Hệ thống đang bận, vui lòng chờ 1 phút rồi gửi lại yêu cầu nhé!"),
+                        "error": "throttling"
+                    }),
+                    "headers": {"Content-Type": "application/json"}
+                }
+            
+            # Other errors
             logger.error(f"Failed to generate SQL. Response: {sql_result}")
             return {
-                "statusCode": 500,
+                "statusCode": status_code,
                 "body": json.dumps({
                     "response": "Không thể tạo truy vấn SQL cho câu hỏi này. Vui lòng thử lại.",
                     "error": "sql_generation_failed"

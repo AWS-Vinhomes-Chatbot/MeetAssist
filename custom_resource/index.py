@@ -294,6 +294,11 @@ def on_create(event):
             
             # Enable pg_vector for embeddings (for AI features)
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            
+            # Enable unaccent for Vietnamese text search (remove diacritics)
+            cur.execute("CREATE EXTENSION IF NOT EXISTS unaccent")
+            print("Extensions vector and unaccent enabled")
+            
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS embeddings (
                     id SERIAL PRIMARY KEY,
