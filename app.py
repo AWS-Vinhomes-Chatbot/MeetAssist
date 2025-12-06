@@ -35,7 +35,18 @@ env = cdk.Environment(region="ap-northeast-1")  # Tokyo region
 
 vpc_stack = VpcStack(app, "AppStack", env=env)
 
-# Create Data Indexer stack first (so we can pass its function ARN to DatabaseInitStack)
+# Create DatabaseInitStack
+db_init_stack = DatabaseInitStack(
+    app, "DatabaseInitStack",
+    db_instance=vpc_stack.rds_instance,
+    vpc=vpc_stack.vpc,
+    security_group=vpc_stack.security_group,
+    readonly_secret=vpc_stack.readonly_secret,
+    data_stored_bucket=vpc_stack.data_stored_bucket,
+    env=env
+)
+
+# Create Data Indexer stack (independent, invoke manually after DB init)
 data_indexer_stack = DataIndexerStack(
     app, "DataIndexerStack", 
     db_instance=vpc_stack.rds_instance, 
@@ -44,19 +55,6 @@ data_indexer_stack = DataIndexerStack(
     readonly_secret=vpc_stack.readonly_secret,
     env=env
 )
-
-# Create DatabaseInitStack with Data Indexer function ARN
-db_init_stack = DatabaseInitStack(
-    app, "DatabaseInitStack",
-    db_instance=vpc_stack.rds_instance,
-    vpc=vpc_stack.vpc,
-    security_group=vpc_stack.security_group,
-    readonly_secret=vpc_stack.readonly_secret,
-    data_stored_bucket=vpc_stack.data_stored_bucket,
-    indexer_function_arn=data_indexer_stack.indexer_function.function_arn,
-    env=env
-)
-db_init_stack.add_dependency(data_indexer_stack)
 text2sql_stack = Text2SQLStack(app, "Text2SQLStack", db_instance=vpc_stack.rds_instance, vpc=vpc_stack.vpc,
                                security_group=vpc_stack.security_group, readonly_secret=vpc_stack.readonly_secret, env=env)
 auth_stack = AuthStack(app, "AuthStack", env=env)
@@ -71,6 +69,9 @@ dashboard_stack = DashboardStack(
     consultant_user_pool=auth_stack.consultant_user_pool,  # Consultant User Pool for API access
     env=env
 )
+# Ensure database tables are created before DashboardStack queries them
+dashboard_stack.add_dependency(db_init_stack)
+
 frontend_stack = FrontendStack(
     app, "FrontendStack",
     # Admin

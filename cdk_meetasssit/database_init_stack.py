@@ -49,7 +49,6 @@ class DatabaseInitStack(Stack):
             security_group: ec2.ISecurityGroup,
             readonly_secret: sm.ISecret,
             data_stored_bucket: s3.IBucket,
-            indexer_function_arn: str = None,
             **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -76,13 +75,6 @@ class DatabaseInitStack(Stack):
             cr_lambda_role.add_to_policy(iam.PolicyStatement(
                 actions=["s3:GetObject", "s3:ListBucket"],
                 resources=[data_stored_bucket.bucket_arn, f"{data_stored_bucket.bucket_arn}/*"]
-            ))
-        
-        # Add Lambda invoke permission for Data Indexer
-        if indexer_function_arn:
-            cr_lambda_role.add_to_policy(iam.PolicyStatement(
-                actions=["lambda:InvokeFunction"],
-                resources=[indexer_function_arn]
             ))
         
         NagSuppressions.add_resource_suppressions(cr_lambda_role, [
@@ -124,7 +116,6 @@ class DatabaseInitStack(Stack):
                 "READ_ONLY_SECRET_NAME": readonly_secret.secret_name,
                 "DB_NAME": "postgres",
                 "DATA_BUCKET_NAME": data_stored_bucket.bucket_name,
-                "INDEXER_FUNCTION_NAME": indexer_function_arn.split(":")[-1] if indexer_function_arn else "",
             },
         )
         NagSuppressions.add_stack_suppressions(
@@ -168,6 +159,13 @@ class DatabaseInitStack(Stack):
              "reason": "Event handler is the latest Python version, 3.12"}
         ], True)
 
+        # CustomResource to trigger database initialization
+        # Change version to force re-initialization when needed
+        CustomResource(
+            self, "db-cr", 
+            service_token=provider.service_token,
+            properties={"version": "2025-12-06-v3"}
+        )
         
         # Output the secret ARNs
         CfnOutput(self, "DBSecretArn", value=db_instance.secret.secret_name)

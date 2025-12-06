@@ -162,7 +162,8 @@ EOF
 python3 load.py
 ```
 9. Once the script completes, navigate to the AWS Lambda console from your browser - https://us-west-2.console.aws.amazon.com/lambda/home?region=us-west-2#/functions
-10. Search for the function named [`DataIndexerStack-DataIndexerFunction`](https://us-west-2.console.aws.amazon.com/lambda/home?region=us-west-2#/functions/DataIndexerStack-DataIndexerFunction?tab=testing)
+10. aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region <region>
+    example:aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region ap-northeast-1
 11. Open the function, and navigate to the Test tab. Click test. This will populate the embeddings table with database schema information.
 12. Next, search for the function named [`AppStack-TextToSQLFunction`]()
 13. Open the function, and navigate to the Test tab. Edit the Event JSON with the following:
