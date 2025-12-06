@@ -174,8 +174,8 @@ const OverviewPage: React.FC = () => {
   return (
     <div className="flex-1 bg-slate-50 dark:bg-slate-900">
       <Header
-        title="Dashboard Overview"
-        subtitle="Tổng quan hoạt động hệ thống MeetAssist"
+        title="Tổng Quan"
+        subtitle="Tổng quan hoạt động "
         actions={
           <Button onClick={fetchData} loading={loading} variant="secondary">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />

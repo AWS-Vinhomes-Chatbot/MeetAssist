@@ -1718,3 +1718,65 @@ class Admin:
             self.conn.rollback()
             self._log_error(f"Error cancelling appointment: {str(e)}")
             return {"success": False, "error": str(e)}
+
+    def complete_appointment(self, consultant_id: int, appointment_id: int) -> Dict[str, Any]:
+        """
+        Complete an appointment (change status from confirmed to completed)
+        Only the assigned consultant can complete their own appointments
+        
+        Args:
+            consultant_id: ID of the consultant (for authorization)
+            appointment_id: ID of the appointment to complete
+            
+        Returns:
+            Dict with success status and updated appointment
+        """
+        # Verify ownership and current status
+        check_query = """
+            SELECT appointmentid, status FROM appointment 
+            WHERE appointmentid = %s AND consultantid = %s
+        """
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(check_query, [appointment_id, consultant_id])
+                row = cur.fetchone()
+                
+                if not row:
+                    return {
+                        "success": False,
+                        "error": "Appointment not found or not assigned to you"
+                    }
+                
+                current_status = row[1]
+                if current_status != 'confirmed':
+                    return {
+                        "success": False,
+                        "error": f"Cannot complete appointment with status '{current_status}'. Only confirmed appointments can be completed."
+                    }
+                
+                # Update status to completed
+                update_query = """
+                    UPDATE appointment 
+                    SET status = 'completed', updatedat = NOW()
+                    WHERE appointmentid = %s
+                    RETURNING appointmentid, consultantid, date, time, status, updatedat
+                """
+                cur.execute(update_query, [appointment_id])
+                updated = cur.fetchone()
+                
+                self.conn.commit()
+                
+            self._log_info(f"Consultant {consultant_id} completed appointment {appointment_id}")
+            return {
+                "success": True,
+                "appointment_id": updated[0],
+                "status": updated[4],
+                "updated_at": str(updated[5]),
+                "message": "Appointment completed successfully"
+            }
+            
+        except Exception as e:
+            self.conn.rollback()
+            self._log_error(f"Error completing appointment: {str(e)}")
+            return {"success": False, "error": str(e)}

@@ -169,10 +169,10 @@ export default function AppointmentsPage() {
     <div className="min-h-screen">
       <Header 
         title="Quản lý Lịch hẹn" 
-        subtitle="Manage counseling appointments"
+        subtitle="Quản lý các cuộc hẹn tư vấn"
         actions={
           <Button onClick={handleCreate} icon="➕">
-            Add Appointment
+            Thêm Lịch Hẹn
           </Button>
         }
       />
@@ -180,18 +180,18 @@ export default function AppointmentsPage() {
       <div className="p-4 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Total: <span className="font-medium text-gray-900 dark:text-white">{appointments.length}</span> appointments
+            Tổng số: <span className="font-medium text-gray-900 dark:text-white">{appointments.length}</span> lịch hẹn
           </p>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="input w-full sm:w-auto sm:min-w-[150px]"
           >
-            <option value="">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
+            <option value="">Tất Cả Trạng Thái</option>
+            <option value="pending">Chờ Xác Nhận</option>
+            <option value="confirmed">Đã Xác Nhận</option>
+            <option value="completed">Hoàn Thành</option>
+            <option value="cancelled">Đã Hủy</option>
           </select>
         </div>
 
@@ -206,12 +206,12 @@ export default function AppointmentsPage() {
                 <thead>
                   <tr className="bg-gray-50 dark:bg-gray-800/50">
                     <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">ID</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Customer</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden md:table-cell">Consultant</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Date & Time</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden lg:table-cell">Duration</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Status</th>
-                    <th className="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-300">Actions</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Khách Hàng</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden md:table-cell">Tư Vấn Viên</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Ngày & Giờ</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden lg:table-cell">Thời Lượng</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Trạng Thái</th>
+                    <th className="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-300">Hành Động</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -225,17 +225,17 @@ export default function AppointmentsPage() {
                           {appointment.appointmentid}
                         </td>
                         <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
-                          {customer?.fullname || `Customer #${appointment.customerid}`}
+                          {customer?.fullname || `Khách Hàng #${appointment.customerid}`}
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">
-                          {consultant?.fullname || `Consultant #${appointment.consultantid}`}
+                          {consultant?.fullname || `Tư Vấn Viên #${appointment.consultantid}`}
                         </td>
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
                           <div className="text-sm">{appointment.date}</div>
                           <div className="text-xs text-gray-400 dark:text-gray-500">{appointment.time}</div>
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden lg:table-cell">
-                          {appointment.duration} mins
+                          {appointment.duration} phút
                         </td>
                         <td className="px-4 py-3">
                           <span className={`badge ${getStatusBadge(appointment.status)}`}>
@@ -247,14 +247,14 @@ export default function AppointmentsPage() {
                             <button
                               onClick={() => handleEdit(appointment)}
                               className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
-                              title="Edit"
+                              title="Chỉnh sửa"
                             >
                               ✏️
                             </button>
                             <button
                               onClick={() => handleDelete(appointment.appointmentid)}
                               className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                              title="Delete"
+                              title="Xóa"
                             >
                               🗑️
                             </button>
@@ -280,14 +280,14 @@ export default function AppointmentsPage() {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingAppointment ? 'Edit Appointment' : 'Add New Appointment'}
+        title={editingAppointment ? 'Chỉnh Sửa Lịch Hẹn' : 'Thêm Lịch Hẹn Mới'}
         size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Customer *
+                Khách Hàng *
               </label>
               <select
                 required
@@ -295,7 +295,7 @@ export default function AppointmentsPage() {
                 onChange={(e) => setFormData({ ...formData, customerid: parseInt(e.target.value) })}
                 className="input"
               >
-                <option value={0}>Select Customer</option>
+                <option value={0}>Chọn Khách Hàng</option>
                 {customers.map(customer => (
                   <option key={customer.customerid} value={customer.customerid}>
                     {customer.fullname}
@@ -306,7 +306,7 @@ export default function AppointmentsPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Consultant *
+                Tư Vấn Viên *
               </label>
               <select
                 required
@@ -314,7 +314,7 @@ export default function AppointmentsPage() {
                 onChange={(e) => setFormData({ ...formData, consultantid: parseInt(e.target.value) })}
                 className="input"
               >
-                <option value={0}>Select Consultant</option>
+                <option value={0}>Chọn Tư Vấn Viên</option>
                 {consultants.map(consultant => (
                   <option key={consultant.consultantid} value={consultant.consultantid}>
                     {consultant.fullname}
@@ -327,7 +327,7 @@ export default function AppointmentsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Date *
+                Ngày *
               </label>
               <input
                 type="date"
@@ -340,7 +340,7 @@ export default function AppointmentsPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Time *
+                Giờ *
               </label>
               <input
                 type="time"
@@ -355,7 +355,7 @@ export default function AppointmentsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Duration (minutes)
+                Thời Lượng (phút)
               </label>
               <input
                 type="number"
@@ -367,7 +367,7 @@ export default function AppointmentsPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Status *
+                Trạng Thái *
               </label>
               <select
                 required
@@ -375,30 +375,17 @@ export default function AppointmentsPage() {
                 onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                 className="input"
               >
-                <option value="pending">Pending</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
+                <option value="pending">Chờ Xác Nhận</option>
+                <option value="confirmed">Đã Xác Nhận</option>
+                <option value="completed">Hoàn Thành</option>
+                <option value="cancelled">Đã Hủy</option>
               </select>
             </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Meeting URL
-            </label>
-            <input
-              type="url"
-              value={formData.meetingurl}
-              onChange={(e) => setFormData({ ...formData, meetingurl: e.target.value })}
-              placeholder="https://zoom.us/..."
-              className="input"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Description
+              Mô Tả
             </label>
             <textarea
               value={formData.description}
@@ -414,10 +401,10 @@ export default function AppointmentsPage() {
               variant="secondary"
               onClick={() => setIsModalOpen(false)}
             >
-              Cancel
+              Hủy
             </Button>
             <Button type="submit">
-              {editingAppointment ? 'Update' : 'Create'}
+              {editingAppointment ? 'Cập Nhật' : 'Tạo Mới'}
             </Button>
           </div>
         </form>

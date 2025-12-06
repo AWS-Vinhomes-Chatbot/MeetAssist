@@ -415,7 +415,7 @@ export default function ConsultantsPage() {
     <div className="min-h-screen">
       <Header 
         title="Quản lý Tư vấn viên" 
-        subtitle="Manage consultant profiles and portal accounts"
+        subtitle="Quản lý hồ sơ và tài khoản cổng thông tin tư vấn viên"
         actions={
           <div className="flex items-center gap-2">
             <Button 
@@ -424,10 +424,10 @@ export default function ConsultantsPage() {
               disabled={syncing}
               icon={syncing ? "⏳" : "🔄"}
             >
-              {syncing ? 'Syncing...' : 'Sync Accounts'}
+              {syncing ? 'Đang đồng bộ...' : 'Đồng Bộ Tài Khoản'}
             </Button>
             <Button onClick={handleCreate} icon="➕">
-              Add Consultant
+              Thêm Tư Vấn Viên
             </Button>
           </div>
         }
@@ -451,12 +451,12 @@ export default function ConsultantsPage() {
                 <thead>
                   <tr className="bg-gray-50 dark:bg-gray-800/50">
                     <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">ID</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Full Name</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Họ và tên</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden md:table-cell">Email</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden lg:table-cell">Phone</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Account</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden xl:table-cell">Specialties</th>
-                    <th className="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-300">Actions</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden lg:table-cell">SĐT</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Tài khoản</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300 hidden xl:table-cell">Chuyên môn</th>
+                    <th className="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-300">Hành động</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -509,11 +509,11 @@ export default function ConsultantsPage() {
                             </button>
                           ) : (
                             <>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleResetPassword(consultant); }}
-                                className="p-2 rounded-lg text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
-                                title="Reset password"
-                              >
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleResetPassword(consultant); }}
+                              className="p-2 rounded-lg text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
+                              title="Đặt lại mật khẩu"
+                            >
                                 🔄
                               </button>
                               <button
@@ -529,14 +529,14 @@ export default function ConsultantsPage() {
                           <button
                             onClick={(e) => { e.stopPropagation(); handleEdit(consultant); }}
                             className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
-                            title="Edit"
+                            title="Chỉnh sửa"
                           >
                             ✏️
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDelete(consultant.consultantid); }}
                             className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                            title="Delete"
+                            title="Xóa"
                           >
                             🗑️
                           </button>
@@ -561,13 +561,13 @@ export default function ConsultantsPage() {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingConsultant ? 'Edit Consultant' : 'Add New Consultant'}
+        title={editingConsultant ? 'Chỉnh Sửa Tư Vấn Viên' : 'Thêm Tư Vấn Viên Mới'}
         size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Full Name *
+              Họ Tên *
             </label>
             <input
               type="text"
@@ -594,7 +594,7 @@ export default function ConsultantsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Phone Number
+                Số Điện Thoại
               </label>
               <input
                 type="tel"
@@ -606,7 +606,7 @@ export default function ConsultantsPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Join Date
+                Ngày Tham Gia
               </label>
               <input
                 type="date"
@@ -619,7 +619,7 @@ export default function ConsultantsPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Specialties
+              Chuyên Môn
             </label>
             <textarea
               value={formData.specialties}
@@ -631,7 +631,7 @@ export default function ConsultantsPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-              Qualifications
+              Bằng Cấp
             </label>
             <textarea
               value={formData.qualifications}
@@ -647,10 +647,10 @@ export default function ConsultantsPage() {
               variant="secondary"
               onClick={() => setIsModalOpen(false)}
             >
-              Cancel
+              Hủy
             </Button>
             <Button type="submit">
-              {editingConsultant ? 'Update' : 'Create'}
+              {editingConsultant ? 'Cập Nhật' : 'Tạo Mới'}
             </Button>
           </div>
         </form>

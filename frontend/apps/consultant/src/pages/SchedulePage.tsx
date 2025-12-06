@@ -43,7 +43,7 @@ export default function SchedulePage({ consultantId }: Props) {
       setSchedules(data.schedules);
     } catch (err) {
       console.error('Failed to load schedule:', err);
-      setError('Failed to load schedule');
+      setError('Không thể tải lịch làm việc');
     } finally {
       setIsLoading(false);
     }
@@ -78,7 +78,7 @@ export default function SchedulePage({ consultantId }: Props) {
         <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
           <p className="text-red-600">{error}</p>
           <button onClick={loadSchedule} className="mt-4 text-teal-500 hover:underline">
-            Try again
+            Thử lại
           </button>
         </div>
       );
@@ -88,8 +88,8 @@ export default function SchedulePage({ consultantId }: Props) {
       return (
         <div className="bg-white rounded-lg shadow p-12 text-center">
           <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-700">No schedule found</h3>
-          <p className="text-gray-500 mt-2">No time slots available for this week</p>
+          <h3 className="text-lg font-semibold text-gray-700">Không tìm thấy lịch làm việc</h3>
+          <p className="text-gray-500 mt-2">Chưa có khung giờ nào cho tuần này</p>
         </div>
       );
     }
@@ -121,7 +121,7 @@ export default function SchedulePage({ consultantId }: Props) {
                   <span className={`text-sm px-2 py-1 rounded ${
                     isToday(dateObj) ? 'bg-teal-400 text-white' : 'bg-gray-200 text-gray-600'
                   }`}>
-                    {availableCount} available
+                    {availableCount} khả dụng
                   </span>
                 </div>
               </div>
@@ -141,7 +141,7 @@ export default function SchedulePage({ consultantId }: Props) {
                       {slot.starttime} - {slot.endtime}
                     </span>
                     {!slot.isavailable && (
-                      <span className="text-xs text-gray-500 ml-auto">Booked</span>
+                      <span className="text-xs text-gray-500 ml-auto">Đã đặt</span>
                     )}
                   </div>
                 ))}
@@ -158,8 +158,8 @@ export default function SchedulePage({ consultantId }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">My Schedule</h2>
-          <p className="text-gray-500 mt-1">Your available time slots</p>
+          <h2 className="text-2xl font-bold text-gray-800">Lịch Làm Việc</h2>
+          <p className="text-gray-500 mt-1">Các khung giờ khả dụng của bạn</p>
         </div>
 
         <div className="flex items-center gap-4">
@@ -188,7 +188,7 @@ export default function SchedulePage({ consultantId }: Props) {
             className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            Làm Mới
           </button>
         </div>
       </div>

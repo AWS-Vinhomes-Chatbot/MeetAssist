@@ -350,6 +350,17 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
             )
             return success_response(data)
         
+        elif action == 'complete_appointment':
+            consultant_id = body.get('consultant_id')
+            appointment_id = body.get('appointment_id')
+            if not consultant_id or not appointment_id:
+                return error_response("Missing 'consultant_id' or 'appointment_id' in request body", 400)
+            data = service.complete_appointment(
+                consultant_id=consultant_id,
+                appointment_id=appointment_id
+            )
+            return success_response(data)
+        
         else:
             return error_response(f"Unknown action: {action}", 400)
             

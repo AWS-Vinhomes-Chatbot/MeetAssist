@@ -34,7 +34,7 @@ function App() {
             await authService.handleCallback();
           } catch (err) {
             console.error('Callback error:', err);
-            setError('Login failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            setError('Đăng nhập thất bại: ' + (err instanceof Error ? err.message : 'Lỗi không xác định'));
           }
         }
 
@@ -62,7 +62,7 @@ function App() {
             setConsultantData(data);
           } catch (err) {
             console.error('Failed to get consultant data:', err);
-            setError('Consultant not found. Please contact admin.');
+            setError('Không tìm thấy tư vấn viên. Vui lòng liên hệ quản trị viên.');
           }
         }
       }
@@ -88,7 +88,7 @@ function App() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-teal-500 mx-auto mb-4" />
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600">Đang Tải...</p>
         </div>
       </div>
     );
@@ -99,8 +99,8 @@ function App() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center max-w-md">
           <AlertTriangle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
-          <h1 className="text-xl font-semibold text-gray-800 mb-2">Configuration Error</h1>
-          <p className="text-gray-600">Unable to load configuration. Please contact admin.</p>
+          <h1 className="text-xl font-semibold text-gray-800 mb-2">Lỗi Cấu Hình</h1>
+          <p className="text-gray-600">Không thể tải cấu hình. Vui lòng liên hệ quản trị viên.</p>
         </div>
       </div>
     );
@@ -112,8 +112,7 @@ function App() {
         <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full mx-4">
           <div className="text-center mb-8">
             <Calendar className="w-16 h-16 text-teal-500 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-gray-800">Consultant Portal</h1>
-            <p className="text-gray-600 mt-2">View your schedule and manage appointments</p>
+            <h1 className="text-2xl font-bold text-gray-800">Đăng nhập </h1>
           </div>
 
           {error && (
@@ -127,11 +126,11 @@ function App() {
             className="w-full flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
           >
             <LogIn className="w-5 h-5" />
-            Sign In
+            Đăng Nhập
           </button>
 
           {config.demoMode && (
-            <p className="text-center text-gray-400 text-sm mt-4">Demo Mode Active</p>
+            <p className="text-center text-gray-400 text-sm mt-4">Chế Độ Demo Đang Hoạt Động</p>
           )}
         </div>
       </div>
@@ -143,10 +142,10 @@ function App() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center max-w-md bg-white p-8 rounded-lg shadow">
           <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-xl font-semibold text-gray-800 mb-2">Access Denied</h1>
+          <h1 className="text-xl font-semibold text-gray-800 mb-2">Truy Cập Bị Từ Chối</h1>
           <p className="text-gray-600 mb-4">{error}</p>
           <button onClick={handleLogout} className="text-teal-500 hover:text-teal-600">
-            Sign out and try again
+            Đăng xuất và thử lại
           </button>
         </div>
       </div>
@@ -162,7 +161,7 @@ function App() {
             <div className="flex justify-between items-center h-16">
               <div className="flex items-center gap-3">
                 <Calendar className="w-8 h-8 text-teal-500" />
-                <h1 className="text-xl font-semibold text-gray-800">Consultant Portal</h1>
+                <h1 className="text-xl font-semibold text-gray-800">Tư Vấn Viên</h1>
               </div>
 
               <div className="flex items-center gap-4">
@@ -173,7 +172,7 @@ function App() {
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-1 text-gray-500 hover:text-red-500 transition-colors"
-                  title="Sign out"
+                  title="Đăng xuất"
                 >
                   <LogOut className="w-5 h-5" />
                 </button>
@@ -198,7 +197,7 @@ function App() {
                 }
               >
                 <Calendar className="w-5 h-5" />
-                <span className="font-medium">My Schedule</span>
+                <span className="font-medium">Lịch Làm Việc</span>
               </NavLink>
               <NavLink 
                 to="/appointments"
@@ -211,7 +210,7 @@ function App() {
                 }
               >
                 <CalendarCheck className="w-5 h-5" />
-                <span className="font-medium">Appointments</span>
+                <span className="font-medium">Cuộc Hẹn</span>
               </NavLink>
             </div>
           </div>
