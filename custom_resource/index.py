@@ -373,22 +373,6 @@ def on_create(event):
         conn.commit()
         print("Database initialization completed successfully!")
         
-        # ========== STEP 4: Trigger Data Indexer to create embeddings ==========
-        indexer_function_name = os.environ.get("INDEXER_FUNCTION_NAME")
-        if indexer_function_name:
-            try:
-                print(f"Step 4: Invoking Data Indexer: {indexer_function_name}")
-                response = lambda_client.invoke(
-                    FunctionName=indexer_function_name,
-                    InvocationType='Event'  # Async invocation
-                )
-                print(f"Data Indexer invoked successfully: StatusCode={response['StatusCode']}")
-            except Exception as e:
-                print(f"Warning: Failed to invoke Data Indexer: {e}")
-                # Don't fail the whole deployment if indexer fails
-        else:
-            print("Step 4: INDEXER_FUNCTION_NAME not set, skipping indexer invocation")
-        
         return {"PhysicalResourceId": request_id}
         
     except Exception as e:
