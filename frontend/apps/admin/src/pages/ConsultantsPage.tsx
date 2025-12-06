@@ -27,6 +27,19 @@ const getLocalDateString = (date: Date = new Date()): string => {
   return `${year}-${month}-${day}`;
 };
 
+// Helper function to check if a slot is in the past (UTC+7 timezone)
+const isPastSlot = (dateStr: string, timeStr: string): boolean => {
+  // Parse slot datetime (YYYY-MM-DD and HH:MM:SS)
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  
+  // Create date in local timezone (Vietnam UTC+7)
+  const slotDate = new Date(year, month - 1, day, hours, minutes);
+  const now = new Date();
+  
+  return slotDate < now;
+};
+
 export default function ConsultantsPage() {
   const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,7 +91,6 @@ export default function ConsultantsPage() {
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [scheduleCurrentPage, setScheduleCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
   // Paginated data
@@ -89,23 +101,9 @@ export default function ConsultantsPage() {
 
   const totalConsultantPages = Math.ceil(consultants.length / ITEMS_PER_PAGE);
 
-  const paginatedSchedules = useMemo(() => {
-    const startIndex = (scheduleCurrentPage - 1) * ITEMS_PER_PAGE;
-    return schedules.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [schedules, scheduleCurrentPage]);
-
-  const totalSchedulePages = Math.ceil(schedules.length / ITEMS_PER_PAGE);
-
   useEffect(() => {
     fetchConsultants();
   }, []);
-
-  // Reset to page 1 when schedule modal opens
-  useEffect(() => {
-    if (isScheduleModalOpen) {
-      setScheduleCurrentPage(1);
-    }
-  }, [isScheduleModalOpen]);
 
   const fetchConsultants = async () => {
     try {
@@ -698,70 +696,84 @@ export default function ConsultantsPage() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 dark:bg-gray-800/50">
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Ngày</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Giờ bắt đầu</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Giờ kết thúc</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Trạng thái</th>
-                    <th className="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-300">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {paginatedSchedules.map((schedule) => (
-                    <tr key={schedule.scheduleid} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                      <td className="px-4 py-3 text-gray-900 dark:text-white">
-                        {schedule.date}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
-                        {formatTime(schedule.starttime)}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
-                        {formatTime(schedule.endtime)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          schedule.isavailable 
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                            : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                        }`}>
-                          {schedule.isavailable 
-                            ? '✓ Có thể đặt' 
-                            : '✗ Không khả dụng'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleEditSchedule(schedule)}
-                            className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
-                            title="Edit"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={() => handleDeleteSchedule(schedule.scheduleid)}
-                            className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                            title="Delete"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                </table>
-              </div>
-              <Pagination
-                currentPage={scheduleCurrentPage}
-                totalPages={totalSchedulePages}
-                onPageChange={setScheduleCurrentPage}
-                totalItems={schedules.length}
-                itemsPerPage={ITEMS_PER_PAGE}
-              />
+              {/* Group schedules by date */}
+              {Object.entries(
+                schedules.reduce((acc, schedule) => {
+                  if (!acc[schedule.date]) acc[schedule.date] = [];
+                  acc[schedule.date].push(schedule);
+                  return acc;
+                }, {} as Record<string, typeof schedules>)
+              )
+              .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+              .map(([date, daySchedules]) => {
+                const dateObj = new Date(date + 'T00:00:00');
+                const dayName = dateObj.toLocaleDateString('vi-VN', { weekday: 'long' });
+                const formattedDate = dateObj.toLocaleDateString('vi-VN', { year: 'numeric', month: 'long', day: 'numeric' });
+                
+                return (
+                  <div key={date} className="mb-6 last:mb-0">
+                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
+                      <h4 className="font-semibold text-gray-900 dark:text-white">
+                        {dayName}, {formattedDate}
+                      </h4>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {daySchedules.length} khung giờ
+                      </span>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {daySchedules.map((schedule) => {
+                        // Check if slot is in the past
+                        const isPast = isPastSlot(schedule.date, schedule.endtime);
+                        
+                        // Determine status label and styling
+                        let statusLabel = '';
+                        let statusClass = '';
+                        
+                        if (schedule.has_appointment || !schedule.isavailable) {
+                          statusLabel = '✗ Không khả dụng';
+                          statusClass = 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
+                        } else if (isPast) {
+                          statusLabel = 'Đã qua';
+                          statusClass = 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400';
+                        } else {
+                          statusLabel = '✓ Có thể đặt';
+                          statusClass = 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+                        }
+                        
+                        return (
+                          <div key={schedule.scheduleid} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-sm transition-shadow">
+                            <div className="flex items-center gap-4">
+                              <div className="text-gray-900 dark:text-white font-medium">
+                                {formatTime(schedule.starttime)} - {formatTime(schedule.endtime)}
+                              </div>
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusClass}`}>
+                                {statusLabel}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleEditSchedule(schedule)}
+                                className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                                title="Edit"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSchedule(schedule.scheduleid)}
+                                className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                title="Delete"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </>
           )}
         </div>
