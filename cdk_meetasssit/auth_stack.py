@@ -81,6 +81,49 @@ class AuthStack(Stack):
             )
         )
 
+        # ==================== CUSTOMIZE EMAIL TEMPLATES ====================
+        # Customize Consultant User Pool email templates
+        cfn_consultant_pool = consultant_user_pool.node.default_child
+        
+        # Custom message template for admin creating user (temporary password)
+        cfn_consultant_pool.add_property_override(
+            'AdminCreateUserConfig.InviteMessageTemplate',
+            {
+                'EmailSubject': '[MeetAssist] Tài khoản tư vấn viên của bạn đã được tạo',
+                'EmailMessage': '''Xin chào,
+
+Tài khoản tư vấn viên MeetAssist của bạn đã được tạo.
+
+Tên đăng nhập (email): {username}
+Mật khẩu tạm thời: {####}
+
+Vui lòng đăng nhập và đổi mật khẩu ngay sau lần đăng nhập đầu tiên.
+
+Trân trọng,
+Đội ngũ MeetAssist'''
+            }
+        )
+        
+        # Custom verification email template
+        cfn_consultant_pool.add_property_override(
+            'VerificationMessageTemplate',
+            {
+                'DefaultEmailOption': 'CONFIRM_WITH_CODE',
+                'EmailSubject': '[MeetAssist] Xác nhận địa chỉ email',
+                'EmailMessage': '''Xin chào,
+
+Cảm ơn bạn đã sử dụng MeetAssist!
+
+Mã xác nhận của bạn là: {####}
+
+Vui lòng nhập mã này để hoàn tất việc xác thực email.
+
+Nếu bạn không yêu cầu xác nhận này, vui lòng bỏ qua email này.
+Trân trọng,
+Đội ngũ MeetAssist'''
+            }
+        )
+
         # ==================== OUTPUTS - ADMIN ====================
         CfnOutput(
             self, "AdminUserPoolId",
