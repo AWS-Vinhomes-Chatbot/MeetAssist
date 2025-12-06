@@ -47,12 +47,18 @@ class MessengerService:
         
         Args:
             psid: Facebook Page-Scoped ID
-            text: Message text
+            text: Message text (will be truncated if > 2000 chars)
             
         Returns:
             True if sent successfully
         """
         try:
+            # Facebook Messenger limit is 2000 characters
+            MAX_MESSAGE_LENGTH = 2000
+            if len(text) > MAX_MESSAGE_LENGTH:
+                logger.warning(f"Message too long ({len(text)} chars), truncating to {MAX_MESSAGE_LENGTH}")
+                text = text[:MAX_MESSAGE_LENGTH - 3] + "..."
+            
             payload = {
                 "recipient": {"id": psid},
                 "message": {"text": text}

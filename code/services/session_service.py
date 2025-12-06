@@ -92,8 +92,8 @@ SESSION_TIMEOUT_SECONDS = 1800  # 30 phút không hoạt động → reset sessi
 SLOT_CACHE_TTL_SECONDS = 300    # 5 phút → refresh slot cache
 BOOKING_FLOW_TIMEOUT_SECONDS = 600  # 10 phút trong booking flow → auto reset
 
-# Required fields for CREATE - giờ chỉ cần tên, SĐT (slot đã chọn từ cache)
-CREATE_REQUIRED_FIELDS = ["customer_name", "phone_number"]
+# Required fields for CREATE - giờ cần tên, SĐT, email (slot đã chọn từ cache)
+CREATE_REQUIRED_FIELDS = ["customer_name", "phone_number", "email"]
 
 # Required fields for update/cancel (chỉ cần appointment_id)
 UPDATE_REQUIRED_FIELDS = ["appointment_id"]
@@ -503,6 +503,11 @@ class SessionService:
                 if not cached_vector:
                     continue
                 
+                # Skip turns without sql_result in metadata (empty results shouldn't be cached)
+                turn_metadata = turn.get("metadata", {})
+                if not turn_metadata or not turn_metadata.get("sql_result"):
+                    continue
+                
                 # Convert string back to vector for computation
                 cached_vector = _string_to_vector(cached_vector)
                 
@@ -514,7 +519,7 @@ class SessionService:
                     best_match = {
                         "user": turn.get("user"),
                         "assistant": turn.get("assistant"),
-                        "metadata": turn.get("metadata", {}),
+                        "metadata": turn_metadata,
                         "vector_score": round(similarity, 3)
                     }
             
@@ -597,7 +602,7 @@ class SessionService:
                 "assistant": assistant_msg,
                 "intent": intent,
                 "metadata": _convert_floats_to_decimal(metadata) if metadata else {},
-                "timestamp": msg_data.get("timestamp") or int(time.time())
+                "timestamp": int(msg_data.get("timestamp") or int(time.time()))
             })
             
             # Keep only last MAX_CONTEXT_TURNS messages (default 3)
@@ -605,8 +610,11 @@ class SessionService:
                 history = history[-self.MAX_CONTEXT_TURNS:]
                 logger.info(f"Trimmed context for {psid}, kept last {self.MAX_CONTEXT_TURNS} turns")
             
+            # Convert all floats to Decimal before saving to DynamoDB
+            history_for_dynamo = _convert_floats_to_decimal(history)
+            
             self.dynamodb_repo.update_item(key={"psid": psid}, updates={
-                "conversation_context": history
+                "conversation_context": history_for_dynamo
             })
             return True
         except Exception as e:
@@ -825,10 +833,11 @@ class SessionService:
         
         Valid states:
         - "idle": No active booking
-        - "selecting_slot": CREATE - choosing available slot
+        - "selecting_slot": CREATE - choosing available slot (after collecting consultant/date/time)
         - "selecting_appointment": UPDATE/CANCEL - choosing which appointment to modify
         - "selecting_new_slot": UPDATE - choosing new slot after selecting appointment
-        - "collecting": Collecting additional info (name, phone for CREATE)
+        - "collecting": Collecting slot info (consultant, date, time)
+        - "collecting_customer": Collecting customer info (name, phone, email) after selecting slot
         - "confirming": Waiting for user confirmation
         - "confirming_restart": Asking if user wants to continue or restart
         - "completed": Booking finished
@@ -840,7 +849,7 @@ class SessionService:
         Returns:
             True if successful
         """
-        valid_states = ["idle", "selecting_slot", "selecting_appointment", "selecting_new_slot", "collecting", "confirming", "confirming_restart", "completed"]
+        valid_states = ["idle", "selecting_slot", "selecting_appointment", "selecting_new_slot", "collecting", "collecting_customer", "confirming", "confirming_restart", "completed"]
         if state not in valid_states:
             logger.error(f"Invalid booking state: {state}")
             return False
@@ -939,7 +948,7 @@ class SessionService:
             appointment_info = self.get_appointment_info(psid)
             booking_state = appointment_info.get("booking_state", "idle")
             
-            if booking_state in ["selecting_slot", "selecting_appointment", "selecting_new_slot", "collecting", "confirming"]:
+            if booking_state in ["selecting_slot", "selecting_appointment", "selecting_new_slot", "collecting", "collecting_customer", "confirming"]:
                 return True, appointment_info
             
             return False, {}

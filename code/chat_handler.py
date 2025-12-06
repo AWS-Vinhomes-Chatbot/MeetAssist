@@ -1,3 +1,40 @@
+"""
+Chat Handler - New booking flow implementation
+
+LUỒNG MỚI:
+
+## CREATE Flow:
+1. Detect intent "create" → collecting state
+2. Trong collecting: 
+   - Không gọi intent detection
+   - Gọi extract_appointment_info → check fields
+   - Cho phép user hỏi DB để lấy thông tin (consultant, lịch trống)
+   - Khi đủ: consultant_name, date, time → query lịch trống → cache → selecting_slot
+3. User chọn slot → confirming → mutation
+
+## UPDATE Flow:
+1. Detect intent "update" → selecting_appointment state
+2. Auto-query lịch đã đặt theo customerid → cache
+3. User chọn lịch muốn đổi → lưu info cũ + customer info → collecting state
+4. Thu thập consultant_name, date, time mới → selecting_new_slot
+5. User chọn slot mới → confirming → mutation (cancel cũ + insert mới)
+
+## CANCEL Flow:
+1. Detect intent "cancel" → selecting_appointment state
+2. Auto-query lịch đã đặt theo customerid → cache
+3. User chọn lịch muốn hủy → confirming
+4. User xác nhận → mutation (update status = cancelled)
+
+STATES:
+- idle: Không có booking flow
+- collecting: Đang thu thập info (name, phone, email, consultant, date, time)
+- selecting_appointment: Chọn lịch đã đặt (UPDATE/CANCEL)
+- selecting_slot: Chọn slot trống (CREATE - sau khi có đủ consultant/date/time)
+- selecting_new_slot: Chọn slot mới (UPDATE)
+- confirming: Chờ xác nhận
+- confirming_restart: Hỏi tiếp tục hay bắt đầu mới
+"""
+
 from services.authencator_service import Authenticator    
 from services.messenger_service import MessengerService
 from services.session_service import SessionService
@@ -7,17 +44,17 @@ import json
 import boto3
 import os
 import re
-from typing import Optional
+from typing import Optional, Tuple
 
 # Initialize services
 auth = Authenticator()
 mess = MessengerService()
 session_service = SessionService()
 
-# Chat uses Haiku for fast responses and intent classification
+# Chat uses Claude 3 Haiku - stable and fast model available in Tokyo region
 bedrock_service = BedrockService(
     model_id="anthropic.claude-3-haiku-20240307-v1:0",
-    max_tokens=2048,
+    max_tokens=1500,
     temperature=0.7
 )
 
@@ -29,34 +66,26 @@ TEXT2SQL_MUTATION_LAMBDA_NAME = os.environ.get("TEXT2SQL_MUTATION_LAMBDA_NAME", 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Fields cần thu thập trước khi query slot
+COLLECTING_FIELDS_FOR_SLOT = ["consultant_name", "appointment_date", "appointment_time"]
+# Fields cần cho CREATE (customer info - thu thập sau khi chọn slot)
+CUSTOMER_INFO_FIELDS = ["customer_name", "phone_number", "email"]
+
 
 def lambda_handler(event, context):
-    """
-    Main Lambda handler for chat messages.
-    
-    Triggered by:
-    1. SQS FIFO Queue (from webhook_receiver) - main flow
-    2. API Gateway GET (for OAuth callback only)
-    
-    Flow:
-    1. Handle SQS events (from webhook_receiver)
-    2. Handle GET callback (for OAuth)
-    """
+    """Main Lambda handler - same as before"""
     logger.info(f"Received event: {json.dumps(event)[:1000]}...")
     
     try:
-        # Check if this is an SQS event (main flow)
         if 'Records' in event:
             return handle_sqs_event(event, context)
         
-        # API Gateway: Only handle GET for OAuth callback
         http_method = event.get("httpMethod") or event.get("requestContext", {}).get("http", {}).get("method")
         path = event.get("path", "/")
         
         if http_method == "GET" and "/callback" in path:
             return auth.handle_callback(event)
         
-        # All other requests should not reach here (handled by webhook_receiver)
         logger.warning(f"Unexpected event type: method={http_method}, path={path}")
         return {"statusCode": 400, "body": "Invalid request - use webhook endpoint"}
             
@@ -66,27 +95,13 @@ def lambda_handler(event, context):
 
 
 def handle_sqs_event(event, context):
-    """
-    Handle SQS FIFO event - process messages from queue.
-    
-    SQS FIFO ensures:
-    1. Deduplication (same message_id within 5 min window won't be processed twice)
-    2. Ordering (messages from same user processed in order via MessageGroupId)
-    
-    Args:
-        event: SQS event with Records array
-        context: Lambda context
-        
-    Returns:
-        dict with batchItemFailures for partial batch failure handling
-    """
+    """Handle SQS FIFO event - same as before"""
     batch_item_failures = []
     
     for record in event.get('Records', []):
         message_id = record.get('messageId')
         
         try:
-            # Parse SQS message body
             body = json.loads(record.get('body', '{}'))
             messaging_event = body.get('messaging_event', {})
             original_event = body.get('original_event', {})
@@ -95,14 +110,12 @@ def handle_sqs_event(event, context):
                 logger.warning(f"Empty messaging_event in SQS message: {message_id}")
                 continue
             
-            # Extract psid and message
             psid = messaging_event.get('sender', {}).get('id')
             
             if not psid:
                 logger.warning(f"No PSID in messaging_event: {message_id}")
                 continue
             
-            # Extract text or payload
             user_question = ""
             if messaging_event.get('message'):
                 message = messaging_event['message']
@@ -119,42 +132,56 @@ def handle_sqs_event(event, context):
             
             logger.info(f"Processing SQS message for {psid}: '{user_question[:50]}...'")
             
-            # Process the message
             process_chat_message(psid, user_question, original_event)
             
             logger.info(f"Successfully processed SQS message: {message_id}")
             
         except Exception as e:
             logger.error(f"Error processing SQS message {message_id}: {e}", exc_info=True)
-            # Add to failures for retry
-            batch_item_failures.append({
-                'itemIdentifier': message_id
-            })
+            batch_item_failures.append({'itemIdentifier': message_id})
     
-    # Return partial batch failure response
-    return {
-        'batchItemFailures': batch_item_failures
-    }
+    return {'batchItemFailures': batch_item_failures}
 
 
 def process_chat_message(psid: str, user_question: str, original_event: dict):
     """
-    Process a single chat message for an authenticated user.
+    Main processing logic - NEW FLOW
     
-    This is the main processing logic extracted from lambda_handler
-    to be reusable for both API Gateway and SQS triggers.
-    
-    Args:
-        psid: User's Page-Scoped ID
-        user_question: User's message text
-        original_event: Original webhook event (for history tracking)
+    Key changes:
+    1. Không gọi intent detection khi đang trong booking flow
+    2. Cho phép user hỏi DB để lấy thông tin trong collecting state
+    3. Query slot chỉ khi đã có đủ consultant + date + time
     """
-    # Check if user is authenticated
+    # Check if this is a new user
+    
+    
+    # Check authentication
     session = session_service.get_session(psid)
     is_authenticated = session.get("is_authenticated", False) if session else False
     
+    # Handle GET_STARTED - show welcome message for all users
+    if user_question == "GET_STARTED":
+        welcome_msg = (
+            "Xin chào! 👋\n\n"
+            "Mình là MeetAssist, trợ lý đặt lịch hẹn tư vấn hướng nghiệp.\n\n"
+            "Bạn có thể:\n"
+            "• 📅 Đặt lịch hẹn với tư vấn viên\n"
+            "• 🔄 Đổi lịch hẹn đã đặt\n"
+            "• ❌ Hủy lịch hẹn\n"
+            "• ❓ Hỏi về tư vấn viên, lịch trống"
+        )
+        mess.send_text_message(psid, welcome_msg)
+        
+        if not is_authenticated:
+            # Unauthenticated user - ask for message to start auth
+            mess.send_text_message(psid, "\n💬 Hãy nhắn tin bất kì để bắt đầu sử dụng dịch vụ!")
+        else:
+            # Authenticated user - ready to use
+            mess.send_text_message(psid, "\n💬 Bạn có thể bắt đầu chat với mình ngay!")
+        return
+    
+    # Handle authentication flow for unauthenticated users
     if not is_authenticated:
-        # User not authenticated - delegate to auth handler
         logger.info(f"User {psid} not authenticated, delegating to auth handler")
         auth.handle_user_authorization_event(psid, user_question)
         return
@@ -166,26 +193,17 @@ def process_chat_message(psid: str, user_question: str, original_event: dict):
         mess.send_text_message(psid, reset_message)
         return
     
-    # Update last activity timestamp
+    # Update last activity
     session_service.update_last_activity(psid)
     
-    # Check if user is in booking flow
+    # Get current booking state
     booking_state = session_service.get_booking_state(psid)
     logger.info(f"Current booking state for {psid}: {booking_state}")
     
-    # Handle confirming_restart state
-    if booking_state == "confirming_restart":
-        response_text = _handle_restart_confirmation(psid, user_question)
-        mess.send_text_message(psid, response_text)
-        session_service.add_message_to_history(
-            event=original_event,
-            assistant_msg=response_text,
-            metadata={"flow": "booking", "booking_state": "confirming_restart"}
-        )
-        return
-    
-    # Handle active booking flow states
-    if booking_state in ["selecting_slot", "selecting_appointment", "selecting_new_slot", "collecting", "confirming"]:
+    # =====================================================
+    # TRONG BOOKING FLOW - KHÔNG gọi intent detection
+    # =====================================================
+    if booking_state != "idle":
         response_text = _handle_booking_flow(psid, user_question, booking_state)
         mess.send_text_message(psid, response_text)
         session_service.add_message_to_history(
@@ -195,7 +213,9 @@ def process_chat_message(psid: str, user_question: str, original_event: dict):
         )
         return
     
-    # Check if user wants to start booking
+    # =====================================================
+    # IDLE STATE - Check for booking intent
+    # =====================================================
     booking_intent = bedrock_service.detect_booking_intent(user_question)
     logger.info(f"Booking intent detection result for {psid}: {booking_intent}")
     
@@ -227,338 +247,60 @@ def process_chat_message(psid: str, user_question: str, original_event: dict):
         )
         return
     
-    # Check cache for similar question
+    # =====================================================
+    # NORMAL QUERY - Cache check then Text2SQL
+    # =====================================================
     cache_hit = session_service.search_cache(psid, user_question)
     
     if cache_hit:
-        # Cache HIT
         logger.info(f"Cache HIT for {psid}")
         response_text = _handle_cache_hit(psid, user_question, cache_hit)
-        mess.send_text_message(psid, response_text)
-        session_service.add_message_to_history(
-            event=original_event,
-            assistant_msg=response_text,
-            metadata=None
-        )
     else:
-        # Cache MISS - invoke text2sql
         logger.info(f"Cache MISS for {psid}, invoking text2sql")
         response_text, metadata = _handle_text2sql(psid, user_question)
-        mess.send_text_message(psid, response_text)
-        session_service.add_message_to_history(
-            event=original_event,
-            assistant_msg=response_text,
-            metadata=metadata
-        )
-
-
-def _handle_cache_hit(psid: str, user_question: str, cache_hit: dict) -> str:
-    """
-    Handle cache hit - use cached metadata to generate response via Bedrock.
     
-    Args:
-        psid: User's PSID
-        user_question: Current user question
-        cache_hit: Cached turn data with metadata
-        
-    Returns:
-        Response text from Bedrock
-    """
-    try:
-        # Get cached metadata
-        cached_metadata = cache_hit.get("metadata", {})
-        sql_result = cached_metadata.get("sql_result", "")
-        schema_context = cached_metadata.get("schema_context_text", "")
-        
-        # Get conversation context
-        context = session_service.get_context_for_llm(psid)
-        
-        # Generate response using Bedrock
-        response = bedrock_service.get_answer_from_sql_results(
-            question=user_question,
-            results=sql_result,
-            schema=schema_context,
-            context=context
-        )
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"Error handling cache hit: {e}")
-        return "Xin lỗi, đã xảy ra lỗi khi xử lý câu hỏi của bạn."
-
-
-def _handle_text2sql(psid: str, user_question: str) -> tuple:
-    """
-    Handle cache miss - invoke text2sql Lambda and generate response.
-    
-    Args:
-        psid: User's PSID
-        user_question: User's question
-        
-    Returns:
-        Tuple of (response_text, metadata)
-    """
-    try:
-        # Get conversation context for text2sql
-        context = session_service.get_context_for_llm(psid)
-        
-        # Prepare payload for text2sql Lambda
-        payload = {
-            "psid": psid,
-            "question": user_question,
-            "context": context
-        }
-        
-        # Invoke text2sql Lambda
-        response = lambda_client.invoke(
-            FunctionName=TEXT2SQL_LAMBDA_NAME,
-            InvocationType="RequestResponse",
-            Payload=json.dumps(payload)
-        )
-        
-        # Parse response
-        result = json.loads(response["Payload"].read().decode())
-        logger.debug(f"Text2SQL response: {result}")
-        
-        if result.get("statusCode") != 200:
-            logger.error(f"Text2SQL error: {result}")
-            # Extract error response from Text2SQL result
-            error_body = result.get("body", "{}")
-            if isinstance(error_body, str):
-                error_body = json.loads(error_body)
-            error_response = error_body.get("response", "Xin lỗi, không thể truy vấn thông tin lúc này.")
-            return error_response, {"error": True, "detail": error_body.get("error", "")}
-        
-        # Parse body
-        body = result.get("body", "{}")
-        if isinstance(body, str):
-            body = json.loads(body)
-        
-        # Extract fields from text2sql response
-        sql_result = body.get("sql_result", [])
-        schema_context = body.get("schema_context_text", "")
-        
-        
-        # Convert sql_result to string for Bedrock
-        sql_result_str = json.dumps(sql_result, ensure_ascii=False, default=str)
-        
-        # Generate natural language response using Bedrock
-        response_text = bedrock_service.get_answer_from_sql_results(
-            question=user_question,
-            results=sql_result_str,
-            schema=schema_context,
-            context=context
-        )
-        
-        # Build metadata for caching
-        metadata = {
-            "source": "text2sql",
-            "intent": "schedule_type",
-            "sql_result": sql_result_str,
-            "schema_context_text": schema_context
-        }
-        
-        return response_text, metadata
-        
-    except Exception as e:
-        logger.error(f"Error in _handle_text2sql: {e}", exc_info=True)
-        return "Xin lỗi, đã xảy ra lỗi khi xử lý câu hỏi của bạn.", {"error": str(e)}
-
-
-def _is_user_asking_question(message: str) -> bool:
-    """
-    Detect if user is asking a question (needs DB query) vs providing information.
-    
-    Questions:
-    - "Có tư vấn viên nào chuyên về tài chính không?"
-    - "Lịch trống ngày mai như thế nào?"
-    - "Có chương trình gì vào cuối tuần?"
-    
-    Providing info:
-    - "Tôi chọn Dr. A"
-    - "Ngày 15/12 lúc 10h"
-    - "Tên tôi là Nguyễn Văn A, SĐT 0901234567"
-    
-    Args:
-        message: User's message
-        
-    Returns:
-        True if user is asking a question
-    """
-    message_lower = message.lower().strip()
-    
-    # Question indicators
-    question_patterns = [
-        # Question words
-        "có ", "có không", "có ai", "có gì", "có bao nhiêu",
-        "ai ", "ai là", "ai có",
-        "gì ", "là gì", "như thế nào", "thế nào",
-        "khi nào", "lúc nào", "bao giờ",
-        "ở đâu", "chỗ nào",
-        "bao nhiêu", "mấy",
-        "tại sao", "vì sao",
-        "làm sao", "cách nào",
-        # Query patterns
-        "danh sách", "liệt kê", "cho xem", "show",
-        "xem ", "kiểm tra", "check",
-        "tìm ", "tìm kiếm", "search",
-        "còn trống", "lịch trống", "slot trống",
-        "chuyên về", "chuyên ngành", "lĩnh vực",
-        "giờ nào", "ngày nào",
-        # Question mark
-        "?"
-    ]
-    
-    # Providing info indicators (higher priority)
-    provide_patterns = [
-        "tôi chọn", "chọn ", "lấy ",
-        "tên tôi", "tôi là", "tên là",
-        "số điện thoại", "sđt", "phone",
-        "đặt lịch với", "hẹn với",
-        "ngày ", "lúc ", "vào ",  # followed by specific date/time
-        "ok", "được", "đồng ý"
-    ]
-    
-    # Check if providing info first (higher priority)
-    for pattern in provide_patterns:
-        if pattern in message_lower:
-            # But also check if it's actually a question about these
-            if "?" in message or any(q in message_lower for q in ["có không", "không có", "được không"]):
-                continue  # It's actually a question
-            return False
-    
-    # Check if asking question
-    for pattern in question_patterns:
-        if pattern in message_lower:
-            return True
-    
-    # Default: if message is short and doesn't look like info, might be a question
-    # If message contains names, numbers, dates - likely providing info
-    has_phone = bool(re.search(r'\d{10,11}', message))
-    has_date = bool(re.search(r'\d{1,2}[/\-]\d{1,2}', message))
-    has_time = bool(re.search(r'\d{1,2}[hH:]\d{0,2}', message))
-    
-    if has_phone or has_date or has_time:
-        return False
-    
-    return False  # Default to not a question
-
-
-def _handle_booking_query(psid: str, user_question: str, current_info: dict) -> str:
-    """
-    Handle user's query during booking flow - query database and return helpful info.
-    
-    Examples:
-    - "Có tư vấn viên nào chuyên về tài chính?" → Query consultants
-    - "Lịch trống ngày mai?" → Query available slots
-    - "Có chương trình gì tuần này?" → Query programs
-    
-    Args:
-        psid: User's PSID
-        user_question: User's question
-        current_info: Current booking info (for context)
-        
-    Returns:
-        Response with query results + prompt to continue booking
-    """
-    try:
-        # Get conversation context
-        context = session_service.get_context_for_llm(psid)
-        
-        # Add booking context to help with the query
-        booking_context = f"""
-[Đang trong quá trình đặt lịch]
-- Thông tin đã có: {json.dumps({k: v for k, v in current_info.items() if v and k not in ['booking_state', 'booking_action']}, ensure_ascii=False)}
-"""
-        full_context = booking_context + "\n" + context if context else booking_context
-        
-        # Prepare payload for text2sql Lambda
-        payload = {
-            "psid": psid,
-            "question": user_question,
-            "context": full_context
-        }
-        
-        # Invoke text2sql Lambda
-        response = lambda_client.invoke(
-            FunctionName=TEXT2SQL_LAMBDA_NAME,
-            InvocationType="RequestResponse",
-            Payload=json.dumps(payload)
-        )
-        
-        # Parse response
-        result = json.loads(response["Payload"].read().decode())
-        
-        if result.get("statusCode") == 200:
-            body = result.get("body", "{}")
-            if isinstance(body, str):
-                body = json.loads(body)
-            
-            sql_result = body.get("sql_result", [])
-            schema_context = body.get("schema_context_text", "")
-            
-            # Generate natural language response
-            sql_result_str = json.dumps(sql_result, ensure_ascii=False, default=str)
-            query_response = bedrock_service.get_answer_from_sql_results(
-                question=user_question,
-                results=sql_result_str,
-                schema=schema_context,
-                context=context
-            )
-            
-            # Add prompt to continue booking
-            missing_fields = session_service.get_missing_appointment_fields(psid)
-            if missing_fields:
-                # Suggest next step based on what they asked
-                if "consultant" in user_question.lower() or "tư vấn viên" in user_question.lower():
-                    query_response += "\n\n👉 Bạn muốn đặt lịch với tư vấn viên nào?"
-                elif "lịch trống" in user_question.lower() or "slot" in user_question.lower():
-                    query_response += "\n\n👉 Bạn muốn chọn khung giờ nào?"
-                elif "chương trình" in user_question.lower() or "sự kiện" in user_question.lower():
-                    query_response += "\n\n👉 Bạn muốn đăng ký chương trình nào?"
-                else:
-                    query_response += "\n\n👉 Bạn có thể tiếp tục cung cấp thông tin đặt lịch."
-            
-            return query_response
-        else:
-            # Query failed - still in booking flow
-            return "Xin lỗi, mình không tìm được thông tin. Bạn có thể hỏi cách khác hoặc tiếp tục cung cấp thông tin đặt lịch."
-            
-    except Exception as e:
-        logger.error(f"Error handling booking query: {e}", exc_info=True)
-        return "Đã xảy ra lỗi khi tìm kiếm. Bạn có thể tiếp tục cung cấp thông tin đặt lịch."
+    mess.send_text_message(psid, response_text)
+    session_service.add_message_to_history(
+        event=original_event,
+        assistant_msg=response_text,
+        metadata=None if cache_hit else (metadata if 'metadata' in dir() else None)
+    )
 
 
 def _start_booking_flow(psid: str, user_question: str, booking_intent: dict) -> str:
     """
-    Start a new booking flow for the user (create, update, or cancel).
+    Start booking flow based on intent.
     
-    Args:
-        psid: User's PSID
-        user_question: User's initial booking request
-        booking_intent: Detected booking intent with type and action
-        
-    Returns:
-        Response text to send to user
+    NEW LOGIC:
+    - CREATE: Go to collecting state immediately (not selecting_slot first)
+    - UPDATE/CANCEL: Go to selecting_appointment state, auto-query user's appointments
     """
     try:
-        # Reset any previous booking info
         session_service.reset_appointment_info(psid)
         
-        # Determine booking action (create, update, cancel)
         booking_action = booking_intent.get("booking_action", "create")
-        
-        # Set the booking action
         session_service.update_appointment_info(psid, {"booking_action": booking_action})
         
-        # For CREATE: Show available slots first
         if booking_action == "create":
-            session_service.set_booking_state(psid, "selecting_slot")
-            return _show_available_slots(psid)
+            # CREATE: Đi thẳng vào collecting, thu thập consultant + date + time trước
+            session_service.set_booking_state(psid, "collecting")
+            
+            # Extract any info from initial message
+            context = session_service.get_context_for_llm(psid)
+            extracted = bedrock_service.extract_appointment_info(
+                message=user_question,
+                current_info={"booking_action": "create"},
+                context=context
+            )
+            
+            if extracted:
+                session_service.update_appointment_info(psid, extracted)
+            
+            # Generate prompt for collecting info
+            return _generate_collecting_prompt(psid)
         
-        # For UPDATE/CANCEL: Show user's appointments first
-        if booking_action in ["update", "cancel"]:
+        elif booking_action in ["update", "cancel"]:
+            # UPDATE/CANCEL: Query user's appointments first
             session_service.set_booking_state(psid, "selecting_appointment")
             return _show_user_appointments(psid, booking_action)
         
@@ -566,26 +308,133 @@ def _start_booking_flow(psid: str, user_question: str, booking_intent: dict) -> 
         
     except Exception as e:
         logger.error(f"Error starting booking flow: {e}", exc_info=True)
-        return "Xin lỗi, đã xảy ra lỗi khi bắt đầu. Vui lòng thử lại."
+        return "Xin lỗi, đã xảy ra lỗi. Vui lòng thử lại."
 
 
-def _show_available_slots(psid: str) -> str:
+def _generate_collecting_prompt(psid: str) -> str:
     """
-    Query and show available appointment slots for CREATE flow.
-    Auto-display consultants with available times in next 7 days.
-    Cache slots để map thứ tự → consultant_id + date + time.
+    Generate prompt based on what info is still needed.
     
-    Returns:
-        Message listing available slots with index numbers
+    For CREATE:
+    - First, need: consultant_name, date, time (to query available slots)
+    - After selecting slot: need customer_name, phone, email
+    """
+    current_info = session_service.get_appointment_info(psid)
+    booking_action = current_info.get("booking_action", "create")
+    
+    # Check if we have consultant + date + time
+    has_slot_criteria = all([
+        current_info.get("consultant_name"),
+        current_info.get("appointment_date"),
+        current_info.get("appointment_time")
+    ])
+    
+    if has_slot_criteria:
+        # Đã có đủ info để query slot - chuyển sang selecting_slot
+        return _query_and_show_available_slots(psid, current_info)
+    
+    # Build prompt asking for missing slot criteria
+    missing = []
+    if not current_info.get("consultant_name"):
+        missing.append("tư vấn viên bạn muốn gặp")
+    if not current_info.get("appointment_date"):
+        missing.append("ngày bạn muốn hẹn")
+    if not current_info.get("appointment_time"):
+        missing.append("giờ bạn muốn hẹn")
+    
+    # Differentiate between CREATE and UPDATE flow
+    if booking_action == "update":
+        # UPDATE flow - user đang đổi lịch cũ
+        if len(missing) == 3:
+            return (
+                "🔄 **Đổi lịch hẹn - Thông tin lịch MỚI**\n\n"
+                "Vui lòng cho mình biết lịch MỚI:\n"
+                "• Tên tư vấn viên mới (hoặc giữ nguyên)\n"
+                "• Ngày mới bạn muốn hẹn\n"
+                "• Giờ mới bạn muốn hẹn\n\n"
+                "💡 Bạn có thể hỏi:\n"
+                "• 'Cho tôi danh sách tư vấn viên'\n"
+                "• 'Lịch trống ngày mai như thế nào?'\n"
+                "• 'Anh/chị X còn slot nào trống?'"
+            )
+        
+        # Có một số info rồi - UPDATE flow
+        prompt = "🔄 **Thông tin lịch MỚI:**\n"
+        if current_info.get("consultant_name"):
+            prompt += f"✅ Tư vấn viên mới: {current_info['consultant_name']}\n"
+        if current_info.get("appointment_date"):
+            prompt += f"✅ Ngày mới: {current_info['appointment_date']}\n"
+        if current_info.get("appointment_time"):
+            prompt += f"✅ Giờ mới: {current_info['appointment_time']}\n"
+        
+        prompt += "\n👉 Vui lòng cho mình biết thêm: " + ", ".join(missing)
+        prompt += "\n💡 Hoặc hỏi: 'Cho xem danh sách tư vấn viên', 'Lịch trống của X?'"
+        
+        return prompt
+    
+    # CREATE flow
+    if len(missing) == 3:
+        return (
+            "📅 **Đặt lịch hẹn tư vấn**\n\n"
+            "Để đặt lịch, vui lòng cho mình biết:\n"
+            "• Tên tư vấn viên (hoặc lĩnh vực tư vấn)\n"
+            "• Ngày bạn muốn hẹn\n"
+            "• Giờ bạn muốn hẹn\n\n"
+            "💡 Bạn có thể hỏi:\n"
+            "• 'Có tư vấn viên nào chuyên về tài chính?'\n"
+            "• 'Lịch trống ngày mai như thế nào?'\n"
+            "• 'Cho xem danh sách tư vấn viên'"
+        )
+    
+    # Có một số info rồi - CREATE flow
+    prompt = "📝 **Thông tin đặt lịch:**\n"
+    if current_info.get("consultant_name"):
+        prompt += f"✅ Tư vấn viên: {current_info['consultant_name']}\n"
+    if current_info.get("appointment_date"):
+        prompt += f"✅ Ngày: {current_info['appointment_date']}\n"
+    if current_info.get("appointment_time"):
+        prompt += f"✅ Giờ: {current_info['appointment_time']}\n"
+    
+    prompt += "\n👉 Vui lòng cho mình biết thêm: " + ", ".join(missing)
+    
+    return prompt
+
+
+def _query_and_show_available_slots(psid: str, current_info: dict) -> str:
+    """
+    Query available slots based on available criteria (consultant, date, time).
+    Flexible query - uses whatever info is available, not requiring all 3.
     """
     try:
-        # Query available slots from database
+        consultant = current_info.get("consultant_name", "")
+        date = current_info.get("appointment_date", "")
+        time = current_info.get("appointment_time", "")
+        
+        # Build flexible query based on available criteria
+        conditions = []
+        if consultant:
+            conditions.append(f'tư vấn viên tên "{consultant}"')
+        if date:
+            conditions.append(f'ngày {date}')
+        if time:
+            conditions.append(f'khoảng giờ {time}')
+        
+        if not conditions:
+            # No criteria - get any available slots
+            query = """Tìm các khung giờ tư vấn còn trống.
+            Yêu cầu: consultantid, fullname, specialties, date, starttime, endtime, isavailable.
+            Chỉ lấy slot còn trống (isavailable = true). Sắp xếp theo ngày và giờ. """
+        else:
+            # Build query with available conditions using OR logic for flexible matching
+            criteria_text = " hoặc ".join(conditions)
+            query = f"""Tìm các khung giờ tư vấn còn trống thỏa mãn một trong các điều kiện sau: {criteria_text}.
+            Yêu cầu: consultantid, fullname, specialties, date, starttime, endtime, isavailable.
+            Chỉ lấy slot còn trống (isavailable = true). 
+            Ưu tiên: khớp nhiều điều kiện hơn xếp trước. Sắp xếp theo ngày và giờ."""
+        
         payload = {
             "psid": psid,
-            "question": """Liệt kê các khung giờ tư vấn còn trống trong 7 ngày tới.
-            Yêu cầu: Lấy consultantid, tên tư vấn viên, chuyên môn, ngày, giờ bắt đầu, giờ kết thúc.
-            Chỉ lấy slot còn trống (isavailable = true).
-            Sắp xếp theo ngày, giờ tăng dần. Giới hạn 10 kết quả.""",
+            "question": query,
             "context": ""
         }
         
@@ -605,66 +454,74 @@ def _show_available_slots(psid: str) -> str:
             slots = body.get("sql_result", [])
             
             if not slots:
-                session_service.reset_appointment_info(psid)
-                session_service.set_booking_state(psid, "idle")
-                return "😔 Hiện tại không có khung giờ trống nào trong 7 ngày tới. Vui lòng thử lại sau!"
-            
-            # Cache slots
-            session_service.cache_available_slots(psid, slots)
-            
-            # Format slots list
-            message = "📅 **Các khung giờ còn trống:**\n\n"
-            
-            for i, slot in enumerate(slots[:10], 1):
-                consultant = slot.get("fullname", slot.get("consultant_name", "N/A"))
-                spec = slot.get("specialties", slot.get("specialization", ""))
-                date = slot.get("date", slot.get("available_date", ""))
-                time = slot.get("starttime", slot.get("available_time", slot.get("time", "")))
+                # Không tìm thấy slot - vẫn ở collecting, đề xuất thử khác
+                criteria_msg = []
+                if consultant:
+                    criteria_msg.append(f"tư vấn viên {consultant}")
+                if date:
+                    criteria_msg.append(f"ngày {date}")
+                if time:
+                    criteria_msg.append(f"lúc {time}")
                 
-                spec_text = f" ({spec})" if spec else ""
-                message += f"{i}️⃣ **{consultant}**{spec_text}\n"
-                message += f"   📆 {date} - 🕐 {time}\n\n"
+                criteria_str = ", ".join(criteria_msg) if criteria_msg else "tiêu chí đã cho"
+                
+                return (
+                    f"😔 Không tìm thấy lịch trống với {criteria_str}.\n\n"
+                    "Bạn có thể thử:\n"
+                    "• Chọn ngày khác\n"
+                    "• Chọn giờ khác\n"
+                    "• Chọn tư vấn viên khác\n"
+                    "• Hỏi 'Lịch trống của [tên tư vấn viên]?'\n"
+                    "• Hỏi 'Có tư vấn viên nào rảnh ngày [ngày]?'"
+                )
             
-            message += "👉 **Vui lòng chọn số thứ tự** (1, 2, 3...)"
+            # Cache slots and switch to selecting_slot
+            session_service.cache_available_slots(psid, slots)
+            session_service.set_booking_state(psid, "selecting_slot")
+            
+            # Format slots list - show header based on criteria
+            if consultant:
+                message = f"📅 **Lịch trống của {consultant}:**\n\n"
+            elif date:
+                message = f"📅 **Lịch trống ngày {date}:**\n\n"
+            else:
+                message = "📅 **Các lịch trống tìm được:**\n\n"
+            
+            for i, slot in enumerate(slots[:5], 1):
+                slot_consultant = slot.get("fullname", slot.get("consultant_name", ""))
+                slot_date = slot.get("date", slot.get("available_date", ""))
+                slot_time = slot.get("starttime", slot.get("start_time", slot.get("time", "")))
+                slot_end = slot.get("endtime", slot.get("end_time", ""))
+                spec = slot.get("specialties", slot.get("specialization", ""))
+                
+                message += f"{i}️⃣ 👨‍💼 {slot_consultant} | 📆 {slot_date} | 🕐 {slot_time}"
+                if slot_end:
+                    message += f" - {slot_end}"
+                message += "\n"
+            
+            message += "\n👉 **Vui lòng chọn số thứ tự** (1, 2, 3...)"
             
             return message
         else:
-            logger.error(f"Error querying available slots: {result}")
-            return "Đã xảy ra lỗi khi tìm khung giờ trống. Vui lòng thử lại."
+            logger.error(f"Error querying slots: {result}")
+            return "Đã xảy ra lỗi khi tìm lịch trống. Vui lòng thử lại."
             
     except Exception as e:
-        logger.error(f"Error showing available slots: {e}", exc_info=True)
-        return "Đã xảy ra lỗi. Vui lòng thử lại sau."
-
-
-# NOTE: _validate_slot_still_available() đã được loại bỏ
-# Lý do: Database đã có constraint UQ_Consultant_Schedule UNIQUE (ConsultantID, Date, StartTime)
-# và CTE trong mutation SQL check isavailable = true trước khi book
-# Nếu slot đã được đặt, DB sẽ raise exception và trả về thông báo lỗi phù hợp
+        logger.error(f"Error querying available slots: {e}", exc_info=True)
+        return "Đã xảy ra lỗi. Vui lòng thử lại."
 
 
 def _show_user_appointments(psid: str, action: str) -> str:
     """
-    Query and show user's appointments for update/cancel selection.
-    KHÔNG hiển thị appointment ID, chỉ hiển thị số thứ tự.
-    Cache appointments để map thứ tự → ID.
-    
-    Args:
-        psid: User's PSID
-        action: "update" or "cancel"
-        
-    Returns:
-        Message listing user's appointments (without IDs)
+    Query and show user's appointments for UPDATE/CANCEL.
     """
     try:
-        # Invoke text2sql to query user's appointments
-        # QUAN TRỌNG: Filter theo customerid = psid để đảm bảo user chỉ thấy lịch của chính mình
-        # Lấy scheduleid và thông tin customer (name, phone) để dùng cho UPDATE/CANCEL flow
         payload = {
             "psid": psid,
             "question": f"""Lấy lịch hẹn đang pending hoặc confirmed của khách hàng có customerid là '{psid}'.
-            Yêu cầu: appointmentid, scheduleid, customerid, tên khách hàng, số điện thoại, consultantid, tên tư vấn viên, ngày hẹn, giờ bắt đầu, status.
-            Giới hạn 5 kết quả.""",
+            Yêu cầu: appointmentid, customerid, fullname as customer_name, phonenumber as phone_number, 
+            consultantid, tên tư vấn viên, ngày hẹn, giờ bắt đầu, status.
+            Sắp xếp theo ngày giảm dần. Giới hạn 5 kết quả.""",
             "context": ""
         }
         
@@ -688,20 +545,19 @@ def _show_user_appointments(psid: str, action: str) -> str:
                 session_service.set_booking_state(psid, "idle")
                 return "Bạn chưa có lịch hẹn nào đang chờ. Bạn có muốn đặt lịch mới không?"
             
-            # Cache appointments để map thứ tự → ID
+            # Cache appointments
             session_service.cache_user_appointments(psid, appointments)
             
-            # Format appointments list - KHÔNG show appointment ID
+            # Format list
             action_text = "hủy" if action == "cancel" else "đổi"
-            message = f"📋 Danh sách lịch hẹn của bạn:\n\n"
+            message = f"📋 **Lịch hẹn của bạn:**\n\n"
             
-            for i, apt in enumerate(appointments[:5], 1):  # Show max 5
+            for i, apt in enumerate(appointments[:5], 1):
                 date = apt.get("appointmentdate", apt.get("date", "N/A"))
                 time = apt.get("starttime", apt.get("time", ""))
                 consultant = apt.get("consultant_name", apt.get("fullname", ""))
                 status = apt.get("status", "")
                 
-                # Chỉ hiển thị số thứ tự, không hiển thị appointment ID
                 message += f"{i}. 📅 {date}"
                 if time:
                     message += f" lúc {time}"
@@ -712,7 +568,7 @@ def _show_user_appointments(psid: str, action: str) -> str:
                     message += f" - {status_emoji} {status}"
                 message += "\n"
             
-            message += f"\n👉 Vui lòng nhập **số thứ tự** (1-{min(5, len(appointments))}) của lịch hẹn bạn muốn {action_text}."
+            message += f"\n👉 Nhập **số thứ tự** (1-{min(5, len(appointments))}) của lịch hẹn bạn muốn {action_text}."
             
             return message
         else:
@@ -723,114 +579,440 @@ def _show_user_appointments(psid: str, action: str) -> str:
         return "Đã xảy ra lỗi khi lấy danh sách lịch hẹn."
 
 
-def _handle_restart_confirmation(psid: str, user_message: str) -> str:
+def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> str:
     """
-    Handle user's response when asked to continue or restart booking.
+    Handle ongoing booking flow.
     
-    Args:
-        psid: User's PSID
-        user_message: User's response ("tiếp tục", "1", "bắt đầu mới", "2", etc.)
-        
-    Returns:
-        Response message
+    KHÔNG gọi intent detection trong booking flow.
     """
     try:
-        message_lower = user_message.lower().strip()
+        # Check abort keywords
+        abort_keywords = ["thôi", "bỏ qua", "dừng", "không làm nữa", "quay lại", "hủy bỏ", "cancel", "stop", "thoát", "exit", "hủy"]
+        msg_lower = user_question.lower().strip()
         
-        # Check if user wants to continue
-        continue_keywords = ["tiếp tục", "tiếp", "1", "số 1", "cái 1", "continue"]
-        if any(kw in message_lower for kw in continue_keywords) or message_lower == "1":
-            # Continue with existing booking
-            current_info = session_service.get_appointment_info(psid)
-            booking_action = current_info.get("booking_action", "create")
+        if msg_lower in abort_keywords or any(kw in msg_lower for kw in abort_keywords):
+            session_service.reset_appointment_info(psid)
+            session_service.set_booking_state(psid, "idle")
+            logger.info(f"User {psid} aborted booking flow")
+            return "Quá trình đặt lịch đã bị hủy. Bạn có thể hỏi tôi bất cứ điều gì khác!"
+        
+        current_info = session_service.get_appointment_info(psid)
+        booking_action = current_info.get("booking_action", "create")
+        
+        # =====================================================
+        # STATE: CONFIRMING_RESTART
+        # =====================================================
+        if booking_state == "confirming_restart":
+            return _handle_restart_confirmation(psid, user_question)
+        
+        # =====================================================
+        # STATE: SELECTING_APPOINTMENT (UPDATE/CANCEL)
+        # =====================================================
+        if booking_state == "selecting_appointment":
+            selection = _parse_selection(user_question)
             
-            # Go back to collecting state
-            session_service.set_booking_state(psid, "collecting")
+            if selection is not None:
+                cached_apt = session_service.get_cached_appointment_by_index(psid, selection)
+                
+                if cached_apt:
+                    # Save appointment info
+                    # lưu thông id lịch cũ để dùng cho update/cancel
+                    session_service.update_appointment_info(psid, {
+                        "appointment_id": cached_apt.get("appointment_id"),
+                        "customer_id": cached_apt.get("customer_id"),
+                        "customer_name": cached_apt.get("customer_name"),
+                        "phone_number": cached_apt.get("phone_number"),
+                        "old_consultant_id": cached_apt.get("consultant_id"),
+                        "old_consultant_name": cached_apt.get("consultant_name"),
+                        "old_date": cached_apt.get("appointment_date"),
+                        "old_time": cached_apt.get("start_time")
+                    })
+                    
+                    if booking_action == "cancel":
+                        # CANCEL: Go to confirming
+                        session_service.set_booking_state(psid, "confirming")
+                        return _generate_confirmation_message(session_service.get_appointment_info(psid))
+                    else:
+                        # UPDATE: Go to collecting for new slot info
+                        session_service.set_booking_state(psid, "collecting")
+                        return (
+                            f"📝 **Bạn đã chọn lịch:**\n"
+                            f"📅 {cached_apt.get('appointment_date')} lúc {cached_apt.get('start_time')}\n"
+                            f"👨‍💼 {cached_apt.get('consultant_name')}\n\n"
+                            "🔄 **Vui lòng cho biết thông tin lịch MỚI:**\n"
+                            "• Tư vấn viên mới (hoặc giữ nguyên)\n"
+                            "• Ngày mới\n"
+                            "• Giờ mới\n\n"
+                            "💡 Bạn có thể hỏi 'Lịch trống của [tên]?' để xem lịch trống."
+                        )
+                else:
+                    return f"❌ Không tìm thấy lịch hẹn số {selection}. Vui lòng chọn lại."
             
-            # Get missing fields and prompt user
-            missing_fields = session_service.get_missing_appointment_fields(psid)
-            if missing_fields:
-                return bedrock_service.generate_booking_response(
-                    current_info=current_info,
-                    missing_fields=missing_fields
-                )
-            else:
-                # All info collected, go to confirming
+            # Not a selection - check if user is asking a question 
+            context = session_service.get_context_for_llm(psid)
+            extracted = bedrock_service.extract_appointment_info(
+                message=user_question,
+                current_info=current_info,
+                context=context
+            )
+            if extracted.get("is_query"):
+                return _handle_query_in_booking(psid, user_question)
+            
+            return "Vui lòng chọn số thứ tự lịch hẹn (1, 2, 3...) hoặc gõ 'thôi' để hủy." #thoát khỏi state selecting_appointment
+        
+        # =====================================================
+        # STATE: SELECTING_SLOT (CREATE - after collecting slot criteria)
+        # =====================================================
+        if booking_state == "selecting_slot":
+            # Check if cache is stale
+            if session_service.is_slot_cache_stale(psid, max_age_seconds=300):
+                logger.info(f"Slot cache stale for {psid}, returning to collecting")
+                session_service.set_booking_state(psid, "collecting")
+                return _generate_collecting_prompt(psid)
+            
+            selection = _parse_selection(user_question)
+            
+            if selection is not None:
+                cached_slot = session_service.get_cached_slot_by_index(psid, selection)
+                
+                if cached_slot:
+                    # Save slot info
+                    session_service.update_appointment_info(psid, {
+                        "consultant_id": cached_slot.get("consultant_id"),
+                        "consultant_name": cached_slot.get("consultant_name"),
+                        "appointment_date": cached_slot.get("date"),
+                        "appointment_time": cached_slot.get("time"),
+                        "appointment_end_time": cached_slot.get("end_time"),
+                        "selected_slot_index": selection
+                    })
+                    
+                    # Now collect customer info
+                    # Check if we already have customer info
+                    updated_info = session_service.get_appointment_info(psid)
+                    has_customer_info = all([
+                        updated_info.get("customer_name"),
+                        updated_info.get("phone_number"),
+                        updated_info.get("email")
+                    ])
+                    
+                    if has_customer_info:
+                        # Go to confirming
+                        session_service.set_booking_state(psid, "confirming")
+                        return _generate_confirmation_message(updated_info)
+                    else:
+                        # Stay in selecting_slot but ask for customer info
+                        session_service.set_booking_state(psid, "collecting_customer")
+                        return (
+                            f"✅ **Bạn đã chọn:**\n"
+                            f"📆 {cached_slot.get('date')} lúc 🕐 {cached_slot.get('time')}\n"
+                            f"👨‍💼 Tư vấn viên: {cached_slot.get('consultant_name')}\n\n"
+                            "👉 Vui lòng cho biết **họ tên**, **số điện thoại** và **email** của bạn."
+                        )
+                else:
+                    return f"❌ Không tìm thấy slot số {selection}. Vui lòng chọn lại."
+            
+            # Not a selection - check if user is asking a question
+            context = session_service.get_context_for_llm(psid)
+            extracted = bedrock_service.extract_appointment_info(
+                message=user_question,
+                current_info=current_info,
+                context=context
+            )
+            if extracted.get("is_query"):
+                return _handle_query_in_booking(psid, user_question) + "\n\n👉 Hãy chọn số thứ tự slot ở trên."
+            
+            return "Vui lòng chọn số thứ tự slot (1, 2, 3...) hoặc gõ 'thôi' để hủy."
+        
+        # =====================================================
+        # STATE: SELECTING_NEW_SLOT (UPDATE)
+        # =====================================================
+        if booking_state == "selecting_new_slot":
+            if session_service.is_slot_cache_stale(psid, max_age_seconds=300):
+                session_service.set_booking_state(psid, "collecting")
+                return _generate_collecting_prompt(psid)
+            
+            selection = _parse_selection(user_question)
+            
+            if selection is not None:
+                cached_slot = session_service.get_cached_slot_by_index(psid, selection)
+                
+                if cached_slot:
+                    session_service.update_appointment_info(psid, {
+                        "consultant_id": cached_slot.get("consultant_id"),
+                        "consultant_name": cached_slot.get("consultant_name"),
+                        "appointment_date": cached_slot.get("date"),
+                        "appointment_time": cached_slot.get("time"),
+                        "appointment_end_time": cached_slot.get("end_time"),
+                        "selected_slot_index": selection
+                    })
+                    
+                    session_service.set_booking_state(psid, "confirming")
+                    return _generate_confirmation_message(session_service.get_appointment_info(psid))
+                else:
+                    return f"❌ Không tìm thấy slot số {selection}. Vui lòng chọn lại."
+            
+            # Check if user is asking a question
+            context = session_service.get_context_for_llm(psid)
+            extracted = bedrock_service.extract_appointment_info(
+                message=user_question,
+                current_info=current_info,
+                context=context
+            )
+            if extracted.get("is_query"):
+                return _handle_query_in_booking(psid, user_question) + "\n\n👉 Hãy chọn số thứ tự slot mới."
+            
+            return "Vui lòng chọn số thứ tự slot mới (1, 2, 3...) hoặc gõ 'thôi' để hủy."
+        
+        # =====================================================
+        # STATE: COLLECTING (CREATE or UPDATE)
+        # =====================================================
+        if booking_state == "collecting":
+            # Extract info from message (also checks if it's a query)
+            context = session_service.get_context_for_llm(psid)
+            extracted = bedrock_service.extract_appointment_info(
+                message=user_question,
+                current_info=current_info,
+                context=context
+            )
+            
+            # Check if user is asking a question
+            if extracted.get("is_query"):
+                query_response = _handle_query_in_booking(psid, user_question)
+                
+                # Add reminder based on booking action and missing info
+                missing = []
+                if not current_info.get("consultant_name"):
+                    missing.append("tư vấn viên")
+                if not current_info.get("appointment_date"):
+                    missing.append("ngày")
+                if not current_info.get("appointment_time"):
+                    missing.append("giờ")
+                
+                if missing:
+                    if booking_action == "update":
+                        reminder = f"\n\n👉 Hãy cho mình biết thông tin lịch MỚI: {', '.join(missing)}"
+                    else:
+                        reminder = f"\n\n👉 Hãy cho mình biết: {', '.join(missing)} để đặt lịch"
+                    return query_response + reminder
+                
+                return query_response
+            
+            # Remove is_query and user_intent_summary from extracted before updating
+            extracted.pop("is_query", None)
+            extracted.pop("user_intent_summary", None)
+            
+            if extracted:
+                session_service.update_appointment_info(psid, extracted)
+                current_info = session_service.get_appointment_info(psid)
+            
+            # Check if we have enough info for slot query
+            has_slot_criteria = all([
+                current_info.get("consultant_name"),
+                current_info.get("appointment_date"),
+                current_info.get("appointment_time")
+            ])
+            
+            if has_slot_criteria:
+                if booking_action == "update":
+                    # For UPDATE: query and show new slots
+                    return _query_and_show_available_slots_for_update(psid, current_info)
+                else:
+                    # For CREATE: query slots
+                    return _query_and_show_available_slots(psid, current_info)
+            
+            # Still need more info
+            return _generate_collecting_prompt(psid)
+        
+        # =====================================================
+        # STATE: COLLECTING_CUSTOMER (after selecting slot)
+        # =====================================================
+        if booking_state == "collecting_customer":
+            # Extract customer info
+            context = session_service.get_context_for_llm(psid)
+            extracted = bedrock_service.extract_appointment_info(
+                message=user_question,
+                current_info=current_info,
+                context=context
+            )
+            
+            # Check if user is asking a question
+            if extracted.get("is_query"):
+                query_response = _handle_query_in_booking(psid, user_question)
+                return query_response + "\n\n👉 Vui lòng cung cấp họ tên, số điện thoại và email của bạn."
+            
+            # Remove is_query and user_intent_summary before updating
+            extracted.pop("is_query", None)
+            extracted.pop("user_intent_summary", None)
+            
+            if extracted:
+                session_service.update_appointment_info(psid, extracted)
+                current_info = session_service.get_appointment_info(psid)
+            
+            # Check if all customer info collected
+            has_customer_info = all([
+                current_info.get("customer_name"),
+                current_info.get("phone_number"),
+                current_info.get("email")
+            ])
+            
+            if has_customer_info:
                 session_service.set_booking_state(psid, "confirming")
                 return _generate_confirmation_message(current_info)
-        
-        # Check if user wants to start fresh
-        restart_keywords = ["bắt đầu mới", "bắt đầu lại", "mới", "2", "số 2", "cái 2", "restart", "new"]
-        if any(kw in message_lower for kw in restart_keywords) or message_lower == "2":
-            # Get saved new intent
-            current_info = session_service.get_appointment_info(psid)
-            new_intent = current_info.get("pending_new_intent", {})
             
-            # Reset and start fresh
-            session_service.reset_appointment_info(psid)
+            # Still need more customer info
+            missing = []
+            if not current_info.get("customer_name"):
+                missing.append("họ tên")
+            if not current_info.get("phone_number"):
+                missing.append("số điện thoại")
+            if not current_info.get("email"):
+                missing.append("email")
             
-            if new_intent:
-                return _start_booking_flow(psid, "", new_intent)
-            else:
-                session_service.set_booking_state(psid, "idle")
-                return "Đã hủy thao tác trước đó. Bạn có thể bắt đầu lại bằng cách nói 'đặt lịch', 'hủy lịch', hoặc 'đổi lịch'."
+            return f"Vui lòng cho mình biết thêm: {', '.join(missing)}"
         
-        # User said something else - ask again
-        return "Vui lòng chọn:\n1️⃣ Nhập **1** hoặc **tiếp tục** để tiếp tục thao tác đang dở\n2️⃣ Nhập **2** hoặc **bắt đầu mới** để hủy và làm lại từ đầu"
+        # =====================================================
+        # STATE: CONFIRMING
+        # =====================================================
+        if booking_state == "confirming":
+            confirm_keywords = ["ok", "đồng ý", "xác nhận", "được", "yes", "có", "ừ", "đúng rồi", "confirm"]
+            
+            if any(kw in msg_lower for kw in confirm_keywords):
+                return _execute_booking(psid, current_info)
+            
+            # Maybe user wants to change something
+            context = session_service.get_context_for_llm(psid)
+            extracted = bedrock_service.extract_appointment_info(
+                message=user_question,
+                current_info=current_info,
+                context=context
+            )
+            
+            # Check if user is asking a question
+            if extracted.get("is_query"):
+                query_response = _handle_query_in_booking(psid, user_question)
+                action_text = {"create": "đặt lịch", "update": "cập nhật", "cancel": "hủy lịch"}.get(booking_action, "đặt lịch")
+                return query_response + f"\n\n👉 Trả lời **'có'** để xác nhận {action_text} hoặc **'thôi'** để hủy."
+            
+            # Remove is_query and user_intent_summary before updating
+            extracted.pop("is_query", None)
+            extracted.pop("user_intent_summary", None)
+            
+            if extracted:
+                session_service.update_appointment_info(psid, extracted)
+                return _generate_confirmation_message(session_service.get_appointment_info(psid))
+            
+            action_text = {"create": "đặt lịch", "update": "cập nhật", "cancel": "hủy lịch"}.get(booking_action, "đặt lịch")
+            return f"Trả lời **'có'** để xác nhận {action_text} hoặc **'thôi'** để hủy."
+        
+        return "Xin lỗi, đã xảy ra lỗi. Vui lòng thử lại."
         
     except Exception as e:
-        logger.error(f"Error handling restart confirmation: {e}")
-        session_service.set_booking_state(psid, "idle")
-        return "Đã xảy ra lỗi. Vui lòng thử lại."
+        logger.error(f"Error handling booking flow: {e}", exc_info=True)
+        return "Xin lỗi, đã xảy ra lỗi. Vui lòng thử lại."
 
 
-def _parse_appointment_selection(user_message: str) -> Optional[int]:
+def _query_and_show_available_slots_for_update(psid: str, current_info: dict) -> str:
+    """Query slots for UPDATE flow and transition to selecting_new_slot"""
+    result = _query_and_show_available_slots(psid, current_info)
+    
+    # If successful (contains slot list), change state
+    if "Vui lòng chọn số thứ tự" in result:
+        session_service.set_booking_state(psid, "selecting_new_slot")
+    
+    return result
+
+
+def _handle_query_in_booking(psid: str, user_question: str) -> str:
     """
-    Parse user's appointment selection (số thứ tự 1-10).
-    
-    Examples:
-    - "1" → 1
-    - "số 2" → 2
-    - "lịch thứ 3" → 3
-    - "chọn cái đầu" → 1
-    
-    Args:
-        user_message: User's message
+    Handle user's question during booking flow (query DB for info).
+    """
+    try:
+        context = session_service.get_context_for_llm(psid)
+        current_info = session_service.get_appointment_info(psid)
         
-    Returns:
-        Selection index (1-based) or None if not a selection
-    """
+        booking_context = f"[Đang đặt lịch - info hiện tại: {json.dumps({k:v for k,v in current_info.items() if v and k not in ['booking_state','booking_action','cached_appointments','cached_available_slots']}, ensure_ascii=False)}]"
+        
+        payload = {
+            "psid": psid,
+            "question": user_question,
+            "context": booking_context + "\n" + context if context else booking_context
+        }
+        
+        response = lambda_client.invoke(
+            FunctionName=TEXT2SQL_LAMBDA_NAME,
+            InvocationType="RequestResponse",
+            Payload=json.dumps(payload)
+        )
+        
+        result = json.loads(response["Payload"].read().decode())
+        
+        if result.get("statusCode") == 200:
+            body = result.get("body", "{}")
+            if isinstance(body, str):
+                body = json.loads(body)
+            
+            sql_result = body.get("sql_result", [])
+            schema_context = body.get("schema_context_text", "")
+            sql_result_str = json.dumps(sql_result, ensure_ascii=False, default=str)
+            
+            query_response = bedrock_service.get_answer_from_sql_results(
+                question=user_question,
+                results=sql_result_str,
+                schema=schema_context,
+                context=context
+            )
+            
+            return query_response
+        else:
+            return "Xin lỗi, không tìm được thông tin. Bạn có thể hỏi cách khác."
+            
+    except Exception as e:
+        logger.error(f"Error handling booking query: {e}")
+        return "Đã xảy ra lỗi khi tìm kiếm."
+
+
+def _handle_restart_confirmation(psid: str, user_message: str) -> str:
+    """Handle restart confirmation"""
+    message_lower = user_message.lower().strip()
+    
+    continue_keywords = ["tiếp tục", "tiếp", "1", "số 1", "continue"]
+    if any(kw in message_lower for kw in continue_keywords) or message_lower == "1":
+        current_info = session_service.get_appointment_info(psid)
+        booking_action = current_info.get("booking_action", "create")
+        
+        session_service.set_booking_state(psid, "collecting")
+        return _generate_collecting_prompt(psid)
+    
+    restart_keywords = ["bắt đầu mới", "bắt đầu lại", "mới", "2", "số 2", "restart", "new"]
+    if any(kw in message_lower for kw in restart_keywords) or message_lower == "2":
+        current_info = session_service.get_appointment_info(psid)
+        new_intent = current_info.get("pending_new_intent", {})
+        
+        session_service.reset_appointment_info(psid)
+        
+        if new_intent:
+            return _start_booking_flow(psid, "", new_intent)
+        else:
+            session_service.set_booking_state(psid, "idle")
+            return "Đã hủy. Bạn có thể nói 'đặt lịch', 'hủy lịch', hoặc 'đổi lịch' để bắt đầu lại."
+    
+    return "Nhập **1** để tiếp tục hoặc **2** để bắt đầu lại."
+
+
+def _parse_selection(user_message: str) -> Optional[int]:
+    """Parse user's selection number (1-10)"""
     message = user_message.lower().strip()
     
-    # Direct number
     if message.isdigit() and 1 <= int(message) <= 10:
         return int(message)
     
-    # "số X" or "lịch X" or "cái X"
-    match = re.search(r'(?:số|lịch|cái)\s*(\d+)', message)
+    import re
+    match = re.search(r'(?:số|lịch|cái|slot)\s*(\d+)', message)
     if match:
         num = int(match.group(1))
         if 1 <= num <= 10:
             return num
     
-    # "thứ X"
-    match = re.search(r'thứ\s*(\d+)', message)
-    if match:
-        num = int(match.group(1))
-        if 1 <= num <= 10:
-            return num
-    
-    # Common phrases
-    ordinals = {
-        "đầu tiên": 1, "cái đầu": 1, "lịch đầu": 1, "số một": 1,
-        "thứ hai": 2, "cái thứ 2": 2, "số hai": 2,
-        "thứ ba": 3, "cái thứ 3": 3, "số ba": 3
-    }
-    for phrase, num in ordinals.items():
-        if phrase in message:
-            return num
-    
-    # Just a number at the end or start
     match = re.search(r'\b(\d)\b', message)
     if match:
         num = int(match.group(1))
@@ -840,499 +1022,178 @@ def _parse_appointment_selection(user_message: str) -> Optional[int]:
     return None
 
 
-def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> str:
-    """
-    Handle ongoing booking flow - select slot, collect info, or confirm booking.
-    
-    States:
-    - selecting_slot: User is choosing from available slots (CREATE)
-    - collecting: Collecting customer info OR selecting appointment (UPDATE/CANCEL)
-    - confirming: Waiting for user confirmation
-    
-    Args:
-        psid: User's PSID
-        user_question: User's message
-        booking_state: Current booking state
-        
-    Returns:
-        Response text to send to user
-    """
-    try:
-        # Check if user wants to abort the current flow
-        abort_keywords = ["thôi", "bỏ qua", "dừng", "không làm nữa", "quay lại", "hủy bỏ"]
-        if any(kw in user_question.lower() for kw in abort_keywords):
-            session_service.reset_appointment_info(psid)
-            session_service.set_booking_state(psid, "idle")
-            return "Đã hủy thao tác. Bạn có thể hỏi tôi bất cứ điều gì khác!"
-        
-        # Get current appointment info
-        current_info = session_service.get_appointment_info(psid)
-        booking_action = current_info.get("booking_action", "create")
-        
-        # =====================================================
-        # STATE: SELECTING_SLOT (CREATE flow - chọn khung giờ)
-        # =====================================================
-        if booking_state == "selecting_slot":
-            # Check if cache is stale (> 5 minutes) - refresh if needed
-            if session_service.is_slot_cache_stale(psid, max_age_seconds=300):
-                logger.info(f"Slot cache stale for {psid}, refreshing...")
-                return _show_available_slots(psid)
-            
-            # Check if user selected a slot number
-            selection = _parse_appointment_selection(user_question)
-            
-            if selection is not None:
-                cached_slot = session_service.get_cached_slot_by_index(psid, selection)
-                
-                if cached_slot:
-                    # User selected a valid slot - store info from cache
-                    session_service.update_appointment_info(psid, {
-                        "consultant_id": cached_slot.get("consultant_id"),
-                        "consultant_name": cached_slot.get("consultant_name"),
-                        "appointment_date": cached_slot.get("date"),
-                        "appointment_time": cached_slot.get("time"),
-                        "appointment_end_time": cached_slot.get("end_time"),
-                        "selected_slot_index": selection
-                    })
-                    
-                    # Move to collecting customer info
-                    session_service.set_booking_state(psid, "collecting")
-                    
-                    consultant = cached_slot.get("consultant_name", "")
-                    date = cached_slot.get("date", "")
-                    time = cached_slot.get("time", "")
-                    
-                    return f"✅ Bạn đã chọn:\n📆 **{date}** lúc 🕐 **{time}**\n👨‍💼 Tư vấn viên: **{consultant}**\n\n👉 Vui lòng cho biết **họ tên** và **số điện thoại** của bạn."
-                else:
-                    return f"❌ Không tìm thấy slot số {selection}. Vui lòng chọn lại từ danh sách (1-10)."
-            
-            # User didn't select a number - maybe asking a question
-            if _is_user_asking_question(user_question):
-                query_response = _handle_booking_query(psid, user_question, current_info)
-                query_response += "\n\n👉 Bạn vẫn đang trong quá trình đặt lịch. Hãy chọn số thứ tự slot ở trên."
-                return query_response
-            
-            # User said something unrelated
-            return "Vui lòng chọn số thứ tự slot muốn đặt (1, 2, 3...) hoặc gõ 'thôi' để hủy."
-        
-        # =====================================================
-        # STATE: SELECTING_APPOINTMENT (UPDATE/CANCEL - chọn lịch hẹn)
-        # =====================================================
-        if booking_state == "selecting_appointment":
-            selection = _parse_appointment_selection(user_question)
-            if selection is not None:
-                cached_apt = session_service.get_cached_appointment_by_index(psid, selection)
-                if cached_apt:
-                    # Lưu appointment_id và customer info từ cache
-                    # QUAN TRỌNG: Copy customer_name và phone_number để dùng cho INSERT mới khi UPDATE
-                    session_service.update_appointment_info(psid, {
-                        "appointment_id": cached_apt.get("appointment_id"),
-                        "customer_id": cached_apt.get("customer_id"),
-                        "customer_name": cached_apt.get("customer_name"),  # Tên từ lịch cũ
-                        "phone_number": cached_apt.get("phone_number"),    # SĐT từ lịch cũ
-                        "old_consultant_id": cached_apt.get("consultant_id"),
-                        "old_date": cached_apt.get("appointment_date"),
-                        "old_time": cached_apt.get("start_time"),
-                        "old_consultant_name": cached_apt.get("consultant_name")
-                    })
-                    
-                    if booking_action == "cancel":
-                        # CANCEL: Go directly to confirming
-                        session_service.set_booking_state(psid, "confirming")
-                        updated_info = session_service.get_appointment_info(psid)
-                        return _generate_confirmation_message(updated_info)
-                    else:
-                        # UPDATE: Show available slots for new selection
-                        session_service.set_booking_state(psid, "selecting_new_slot")
-                        old_info = f"📝 Bạn đã chọn lịch hẹn:\n"
-                        old_info += f"   📅 Ngày: {cached_apt.get('appointment_date')}\n"
-                        old_info += f"   🕐 Giờ: {cached_apt.get('start_time')}\n"
-                        old_info += f"   👨‍💼 Tư vấn viên: {cached_apt.get('consultant_name')}\n\n"
-                        old_info += "🔄 **Vui lòng chọn khung giờ MỚI:**\n\n"
-                        
-                        # Show available slots
-                        slots_msg = _show_available_slots(psid)
-                        return old_info + slots_msg
-                else:
-                    return f"❌ Không tìm thấy lịch hẹn số {selection}. Vui lòng chọn lại từ danh sách."
-            
-            # User didn't select a number
-            return "Vui lòng chọn số thứ tự lịch hẹn muốn thao tác (1, 2, 3...) hoặc gõ 'thôi' để hủy."
-        
-        # =====================================================
-        # STATE: SELECTING_NEW_SLOT (UPDATE - chọn slot mới)
-        # =====================================================
-        if booking_state == "selecting_new_slot":
-            # Check if cache is stale
-            if session_service.is_slot_cache_stale(psid, max_age_seconds=300):
-                logger.info(f"Slot cache stale for {psid}, refreshing...")
-                return _show_available_slots(psid)
-            
-            selection = _parse_appointment_selection(user_question)
-            if selection is not None:
-                cached_slot = session_service.get_cached_slot_by_index(psid, selection)
-                if cached_slot:
-                    # Lưu thông tin slot MỚI từ cache
-                    session_service.update_appointment_info(psid, {
-                        "consultant_id": cached_slot.get("consultant_id"),
-                        "consultant_name": cached_slot.get("consultant_name"),
-                        "appointment_date": cached_slot.get("date"),
-                        "appointment_time": cached_slot.get("time"),
-                        "appointment_end_time": cached_slot.get("end_time"),
-                        "selected_slot_index": selection
-                    })
-                    
-                    # Chuyển sang confirming - hỏi xác nhận
-                    session_service.set_booking_state(psid, "confirming")
-                    updated_info = session_service.get_appointment_info(psid)
-                    return _generate_confirmation_message(updated_info)
-                else:
-                    return f"❌ Không tìm thấy slot số {selection}. Vui lòng chọn lại từ danh sách (1-10)."
-            
-            # User didn't select a number - maybe asking a question
-            if _is_user_asking_question(user_question):
-                query_response = _handle_booking_query(psid, user_question, current_info)
-                query_response += "\n\n👉 Bạn vẫn đang chọn khung giờ mới. Hãy chọn số thứ tự slot ở trên."
-                return query_response
-            
-            return "Vui lòng chọn số thứ tự slot mới (1, 2, 3...) hoặc gõ 'thôi' để hủy."
-        
-        # =====================================================
-        # STATE: COLLECTING (thu thập thông tin - chỉ cho CREATE)
-        # =====================================================
-        if booking_state == "collecting":
-            # For CREATE: Collecting customer name and phone
-            # Check if user is asking a question
-            if _is_user_asking_question(user_question):
-                query_response = _handle_booking_query(psid, user_question, current_info)
-                return query_response
-            
-            # Extract customer info from message
-            extracted_info = bedrock_service.extract_appointment_info(
-                message=user_question,
-                current_info=current_info
-            )
-            
-            # Update appointment info
-            if extracted_info:
-                session_service.update_appointment_info(psid, extracted_info)
-                current_info = session_service.get_appointment_info(psid)
-            
-            # Check if all required info is collected
-            if session_service.is_appointment_complete(psid):
-                # Move to confirming state
-                session_service.set_booking_state(psid, "confirming")
-                return _generate_confirmation_message(current_info)
-            else:
-                # Still need more info
-                missing_fields = session_service.get_missing_appointment_fields(psid)
-                return bedrock_service.generate_booking_response(
-                    current_info=current_info,
-                    missing_fields=missing_fields
-                )
-        
-        elif booking_state == "confirming":
-            # Check if user confirms
-            confirm_keywords = ["ok", "đồng ý", "xác nhận", "được", "yes", "có", "ừ", "đúng rồi"]
-            if any(kw in user_question.lower() for kw in confirm_keywords):
-                # Execute the booking action (create/update/cancel)
-                return _execute_booking(psid, current_info)
-            else:
-                # User might want to change something
-                extracted_info = bedrock_service.extract_appointment_info(
-                    message=user_question,
-                    current_info=current_info
-                )
-                
-                if extracted_info:
-                    # Update and re-confirm
-                    session_service.update_appointment_info(psid, extracted_info)
-                    current_info = session_service.get_appointment_info(psid)
-                    return _generate_confirmation_message(current_info)
-                else:
-                    # Ask again for confirmation
-                    action_text = {
-                        "create": "đặt lịch",
-                        "update": "cập nhật lịch hẹn",
-                        "cancel": "hủy lịch hẹn"
-                    }.get(booking_action, "đặt lịch")
-                    return f"Bạn có muốn xác nhận {action_text} với thông tin trên không? (Trả lời 'có' để xác nhận hoặc 'thôi' để hủy)"
-        
-        return "Xin lỗi, đã xảy ra lỗi. Vui lòng thử lại."
-        
-    except Exception as e:
-        logger.error(f"Error handling booking flow: {e}", exc_info=True)
-        return "Xin lỗi, đã xảy ra lỗi khi xử lý. Vui lòng thử lại."
+# _is_question removed - replaced by is_query field from extract_appointment_info
 
 
 def _generate_confirmation_message(appointment_info: dict) -> str:
-    """
-    Generate a confirmation message for the collected appointment info.
-    
-    Args:
-        appointment_info: Current appointment info
-        
-    Returns:
-        Confirmation message string
-    """
+    """Generate confirmation message"""
     booking_action = appointment_info.get("booking_action", "create")
-    appointment_id = appointment_info.get("appointment_id")
     
-    # Different headers based on action
     if booking_action == "cancel":
         message = "📋 **Xác nhận HỦY lịch hẹn:**\n\n"
-        message += f"🆔 Mã lịch hẹn: #{appointment_id}\n"
-        if appointment_info.get("notes"):
-            message += f"📌 Lý do hủy: {appointment_info.get('notes')}\n"
-        message += "\n⚠️ Trả lời **'có'** để xác nhận HỦY hoặc **'thôi'** để giữ lại lịch hẹn."
+        message += f"📅 Ngày: {appointment_info.get('old_date', 'N/A')}\n"
+        message += f"🕐 Giờ: {appointment_info.get('old_time', 'N/A')}\n"
+        message += f"👨‍💼 Tư vấn viên: {appointment_info.get('old_consultant_name', 'N/A')}\n"
+        message += "\n⚠️ Trả lời **'có'** để xác nhận HỦY hoặc **'thôi'** để giữ lại."
         return message
     
     if booking_action == "update":
-        message = "📋 **Xác nhận CẬP NHẬT lịch hẹn:**\n\n"
-        
-        # Hiển thị thông tin CŨ
-        message += "❌ **Thông tin cũ:**\n"
-        if appointment_info.get("old_date"):
-            message += f"   📅 Ngày: {appointment_info.get('old_date')}\n"
-        if appointment_info.get("old_time"):
-            message += f"   🕐 Giờ: {appointment_info.get('old_time')}\n"
-        if appointment_info.get("old_consultant_name"):
-            message += f"   👨‍💼 Tư vấn viên: {appointment_info.get('old_consultant_name')}\n"
-        
-        # Hiển thị thông tin MỚI
-        message += "\n✅ **Thông tin mới:**\n"
-        if appointment_info.get("appointment_date"):
-            message += f"   📅 Ngày: {appointment_info.get('appointment_date')}\n"
-        if appointment_info.get("appointment_time"):
-            message += f"   🕐 Giờ: {appointment_info.get('appointment_time')}\n"
-        if appointment_info.get("consultant_name"):
-            message += f"   👨‍💼 Tư vấn viên: {appointment_info.get('consultant_name')}\n"
-        if appointment_info.get("notes"):
-            message += f"   📌 Ghi chú: {appointment_info.get('notes')}\n"
-        
-        message += "\n✅ Trả lời **'có'** để xác nhận cập nhật hoặc **'thôi'** để hủy."
+        message = "📋 **Xác nhận ĐỔI lịch hẹn:**\n\n"
+        message += "❌ **Lịch cũ:**\n"
+        message += f"   📅 {appointment_info.get('old_date')}\n"
+        message += f"   🕐 {appointment_info.get('old_time')}\n"
+        message += f"   👨‍💼 {appointment_info.get('old_consultant_name')}\n"
+        message += "\n✅ **Lịch mới:**\n"
+        message += f"   📅 {appointment_info.get('appointment_date')}\n"
+        message += f"   🕐 {appointment_info.get('appointment_time')}\n"
+        message += f"   👨‍💼 {appointment_info.get('consultant_name')}\n"
+        message += "\nTrả lời **'có'** để xác nhận hoặc **'thôi'** để hủy."
         return message
     
-    # For create action
-    message = "📋 **Xác nhận thông tin đặt lịch:**\n\n"
+    # CREATE
+    message = "📋 **Xác nhận đặt lịch:**\n\n"
     message += f"👤 Tên: {appointment_info.get('customer_name', 'N/A')}\n"
     message += f"📞 SĐT: {appointment_info.get('phone_number', 'N/A')}\n"
+    message += f"📧 Email: {appointment_info.get('email', 'N/A')}\n"
     message += f"📅 Ngày: {appointment_info.get('appointment_date', 'N/A')}\n"
     message += f"🕐 Giờ: {appointment_info.get('appointment_time', 'N/A')}\n"
     message += f"👨‍💼 Tư vấn viên: {appointment_info.get('consultant_name', 'N/A')}\n"
-    
-    if appointment_info.get("notes"):
-        message += f"📌 Ghi chú: {appointment_info.get('notes')}\n"
-    
     message += "\n✅ Trả lời **'có'** để xác nhận hoặc **'thôi'** để hủy."
     
     return message
 
 
-def _lookup_or_create_customer(psid: str, customer_name: str, phone_number: str, email: str = None) -> Optional[dict]:
-    """
-    Lookup customer by phone number, create if not exists.
-    
-    Args:
-        psid: User's PSID
-        customer_name: Customer's name
-        phone_number: Customer's phone number
-        email: Customer's email (optional)
-        
-    Returns:
-        Dict with customer_id or None if failed
-    """
-    try:
-        # First, try to lookup by phone number
-        lookup_payload = {
-            "psid": psid,
-            "question": f"Tìm khách hàng có số điện thoại {phone_number}, trả về customerid, fullname, phonenumber, email",
-            "context": ""
-        }
-        
-        response = lambda_client.invoke(
-            FunctionName=TEXT2SQL_LAMBDA_NAME,
-            InvocationType="RequestResponse",
-            Payload=json.dumps(lookup_payload)
-        )
-        
-        result = json.loads(response["Payload"].read().decode())
-        
-        if result.get("statusCode") == 200:
-            body = result.get("body", "{}")
-            if isinstance(body, str):
-                body = json.loads(body)
-            
-            customers = body.get("sql_result", [])
-            if customers and len(customers) > 0:
-                # Customer found
-                customer = customers[0]
-                logger.info(f"Found existing customer: {customer}")
-                return {
-                    "customer_id": customer.get("customerid", customer.get("id")),
-                    "fullname": customer.get("fullname"),
-                    "phonenumber": customer.get("phonenumber"),
-                    "email": customer.get("email"),
-                    "is_new": False
-                }
-        
-        # Customer not found - will be created during mutation
-        logger.info(f"Customer not found, will create new: {customer_name}, {phone_number}")
-        return {
-            "customer_id": None,  # Will be created
-            "fullname": customer_name,
-            "phonenumber": phone_number,
-            "email": email,
-            "is_new": True
-        }
-        
-    except Exception as e:
-        logger.error(f"Error looking up customer: {e}")
-        return None
-
-
-def _lookup_consultant(psid: str, consultant_name: str) -> Optional[dict]:
-    """
-    Lookup consultant by name (fuzzy match).
-    
-    Args:
-        psid: User's PSID
-        consultant_name: Consultant's name (partial or full)
-        
-    Returns:
-        Dict with consultant_id and details or None if not found
-    """
-    try:
-        lookup_payload = {
-            "psid": psid,
-            "question": f"Tìm tư vấn viên có tên giống '{consultant_name}', trả về consultantid, fullname, specialization, email. Sử dụng ILIKE để tìm kiếm tên gần đúng.",
-            "context": ""
-        }
-        
-        response = lambda_client.invoke(
-            FunctionName=TEXT2SQL_LAMBDA_NAME,
-            InvocationType="RequestResponse",
-            Payload=json.dumps(lookup_payload)
-        )
-        
-        result = json.loads(response["Payload"].read().decode())
-        
-        if result.get("statusCode") == 200:
-            body = result.get("body", "{}")
-            if isinstance(body, str):
-                body = json.loads(body)
-            
-            consultants = body.get("sql_result", [])
-            if consultants and len(consultants) > 0:
-                # Return first match
-                consultant = consultants[0]
-                logger.info(f"Found consultant: {consultant}")
-                return {
-                    "consultant_id": consultant.get("consultantid", consultant.get("id")),
-                    "fullname": consultant.get("fullname"),
-                    "specialization": consultant.get("specialization"),
-                    "email": consultant.get("email")
-                }
-        
-        logger.warning(f"Consultant not found: {consultant_name}")
-        return None
-        
-    except Exception as e:
-        logger.error(f"Error looking up consultant: {e}")
-        return None
-
-
 def _execute_booking(psid: str, appointment_info: dict) -> str:
-    """
-    Execute the booking action (create/update/cancel) by calling text2sql mutation Lambda.
-    
-    Flow for CREATE:
-    - Call mutation Lambda với CTE - tự handle race condition trong SQL
-    - CTE sẽ chỉ book slot nếu isavailable = true
-    
-    Flow for UPDATE/CANCEL:
-    - Uses appointment_id and customer_id from cached selection
-    
-    Args:
-        psid: User's PSID
-        appointment_info: Complete appointment info
-        
-    Returns:
-        Response message indicating success/failure
-    """
+    """Execute booking mutation"""
     try:
         booking_action = appointment_info.get("booking_action", "create")
-        appointment_id = appointment_info.get("appointment_id")
         
-        # NOTE: Removed separate slot validation to reduce Bedrock calls
-        # CTE in mutation SQL handles race condition by checking isavailable
-        
-        if booking_action == "create":
-            consultant_id = appointment_info.get("consultant_id")
-            if not consultant_id:
-                return "❌ Thiếu thông tin tư vấn viên. Vui lòng chọn lại slot."
-        
-        # Build simple mutation request - prompt có đủ context từ appointment_info
         if booking_action == "cancel":
-            mutation_request = "Hủy lịch hẹn (dùng 1 SQL với CTE)"
-                
+            mutation_request = "Hủy lịch hẹn"
         elif booking_action == "update":
-            mutation_request = "Đổi lịch hẹn (dùng 1 SQL với CTE)"
-                
-        else:  # create
-            mutation_request = "Đặt lịch mới (dùng 1 SQL với CTE)"
+            mutation_request = "Đổi lịch hẹn"
+        else:
+            mutation_request = "Đặt lịch mới"
         
         logger.info(f"Executing booking for {psid}: {mutation_request}")
         
-        # Prepare payload for text2sql mutation Lambda
         payload = {
             "psid": psid,
             "question": mutation_request,
-            "mutation": True,  # Flag to indicate this is a mutation
+            "mutation": True,
             "appointment_info": appointment_info
         }
         
-        # Invoke text2sql Lambda with mutation flag
         response = lambda_client.invoke(
             FunctionName=TEXT2SQL_MUTATION_LAMBDA_NAME,
             InvocationType="RequestResponse",
             Payload=json.dumps(payload)
         )
         
-        # Parse response
         result = json.loads(response["Payload"].read().decode())
         logger.info(f"Mutation response: {result}")
         
         if result.get("statusCode") == 200:
-            # Success - reset booking state
-            session_service.set_booking_state(psid, "completed")
             session_service.reset_appointment_info(psid)
             session_service.set_booking_state(psid, "idle")
             
-            # Parse success message from body (includes formatted appointment info)
             body = result.get("body", "{}")
             if isinstance(body, str):
                 body = json.loads(body)
             
-            # Response already contains formatted appointment info from text2sql_handler
-            success_msg = body.get("response", "Đặt lịch thành công!")
+            success_msg = body.get("response", "Thành công!")
             
-            # Customize success message based on action
             if booking_action == "cancel":
                 return f"✅ {success_msg}\n\nLịch hẹn đã được hủy thành công."
             elif booking_action == "update":
                 return f"✅ {success_msg}\n\nLịch hẹn đã được cập nhật thành công."
             else:
-                return f"🎉 {success_msg}\n\nCảm ơn bạn đã sử dụng dịch vụ! Chúng tôi sẽ liên hệ với bạn sớm."
+                return f"🎉 {success_msg}\n\nCảm ơn bạn đã sử dụng dịch vụ!"
         else:
-            # Error occurred
             error_body = result.get("body", "{}")
             if isinstance(error_body, str):
                 error_body = json.loads(error_body)
-            error_msg = error_body.get("error", error_body.get("response", "Không thể thực hiện đặt lịch"))
-            logger.error(f"Booking execution failed: {error_msg}")
-            return f"❌ Rất tiếc, {error_msg}. Vui lòng thử lại sau."
+            error_msg = error_body.get("error", error_body.get("response", "Không thể thực hiện"))
+            logger.error(f"Booking failed: {error_msg}")
+            return f"❌ {error_msg}. Vui lòng thử lại."
             
     except Exception as e:
         logger.error(f"Error executing booking: {e}", exc_info=True)
-        return "❌ Đã xảy ra lỗi khi thực hiện đặt lịch. Vui lòng thử lại sau."   
+        return "❌ Đã xảy ra lỗi. Vui lòng thử lại."
+
+
+def _handle_cache_hit(psid: str, user_question: str, cache_hit: dict) -> str:
+    """Handle cache hit"""
+    try:
+        cached_metadata = cache_hit.get("metadata", {})
+        sql_result = cached_metadata.get("sql_result", "")
+        schema_context = cached_metadata.get("schema_context_text", "")
+        context = session_service.get_context_for_llm(psid)
+        
+        response = bedrock_service.get_answer_from_sql_results(
+            question=user_question,
+            results=sql_result,
+            schema=schema_context,
+            context=context
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error handling cache hit: {e}")
+        return "Xin lỗi, đã xảy ra lỗi."
+
+
+def _handle_text2sql(psid: str, user_question: str) -> tuple:
+    """Handle cache miss - invoke text2sql"""
+    try:
+        context = session_service.get_context_for_llm(psid)
+        
+        payload = {
+            "psid": psid,
+            "question": user_question,
+            "context": context
+        }
+        
+        response = lambda_client.invoke(
+            FunctionName=TEXT2SQL_LAMBDA_NAME,
+            InvocationType="RequestResponse",
+            Payload=json.dumps(payload)
+        )
+        
+        result = json.loads(response["Payload"].read().decode())
+        
+        if result.get("statusCode") != 200:
+            error_body = result.get("body", "{}")
+            if isinstance(error_body, str):
+                error_body = json.loads(error_body)
+            return error_body.get("response", "Xin lỗi, không thể xử lý yêu cầu."), {"error": True}
+        
+        body = result.get("body", "{}")
+        if isinstance(body, str):
+            body = json.loads(body)
+        
+        sql_result = body.get("sql_result", [])
+        schema_context = body.get("schema_context_text", "")
+        sql_result_str = json.dumps(sql_result, ensure_ascii=False, default=str)
+        
+        response_text = bedrock_service.get_answer_from_sql_results(
+            question=user_question,
+            results=sql_result_str,
+            schema=schema_context,
+            context=context
+        )
+        
+        is_empty = not sql_result or (isinstance(sql_result, list) and len(sql_result) == 0)
+        if is_empty:
+            return response_text, None
+        
+        return response_text, {
+            "source": "text2sql",
+            "sql_result": sql_result_str,
+            "schema_context_text": schema_context
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in _handle_text2sql: {e}", exc_info=True)
+        return "Xin lỗi, đã xảy ra lỗi.", {"error": str(e)}

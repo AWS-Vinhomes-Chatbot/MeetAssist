@@ -126,3 +126,6 @@ class DataIndexerStack(Stack):
         NagSuppressions.add_resource_suppressions(func, [
             {"id": "AwsSolutions-L1", "reason": "Python 3.12 is the stable version tested for this solution."}
         ])
+        
+        # Export the function for use in other stacks
+        self.indexer_function = func

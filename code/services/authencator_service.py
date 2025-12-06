@@ -73,6 +73,7 @@ class Authenticator:
         self.MAX_OTP_REQUESTS_PER_HOUR = int(os.environ.get("MAX_OTP_REQUESTS_PER_HOUR", "3"))
         self.BLOCK_DURATION_SECONDS = int(os.environ.get("BLOCK_DURATION_SECONDS", "3600"))
         self.OTP_EXPIRY_SECONDS = int(os.environ.get("OTP_EXPIRY_SECONDS", "300"))
+        self.SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", "3600"))  # 1 hour TTL for unauthenticated sessions
     def generate_otp(self) -> str:
         """Generate cryptographically secure 6-digit OTP code."""
         # Use secrets.SystemRandom for cryptographically secure random numbers
@@ -160,6 +161,7 @@ class Authenticator:
         try:
             timestamp = int(time.time())
             expiry = timestamp + self.OTP_EXPIRY_SECONDS
+            ttl = timestamp + self.SESSION_TTL_SECONDS  # TTL for DynamoDB auto-delete
             
             # Get existing session for rate limiting data
             session = self.session_table.get_item(Key={"psid": psid})
@@ -188,7 +190,8 @@ class Authenticator:
                     "otp_request_window_start": otp_request_window_start,
                     "is_authenticated": False,
                     "auth_state": "awaiting_otp",
-                    "updated_at": timestamp
+                    "updated_at": timestamp,
+                    "ttl": ttl  # DynamoDB TTL - auto delete after 1 hour for unauthenticated sessions
                 }
             )
             return True
@@ -217,20 +220,12 @@ class Authenticator:
                 logger.warning(f"OTP already used for {psid}")
                 return None
             
-            # Check expiry
+            # Check expiry - return special marker for expired OTP
             current_time = int(time.time())
             if current_time > otp_expiry:
                 logger.warning(f"OTP expired for {psid}")
-                # Invalidate expired OTP
-                self.session_table.update_item(
-                    Key={"psid": psid},
-                    UpdateExpression="SET otp = :null, otp_expiry = :zero",
-                    ExpressionAttributeValues={
-                        ":null": "",
-                        ":zero": 0
-                    }
-                )
-                return None
+                # Return special marker indicating OTP expired (will trigger auto-resend)
+                return "__OTP_EXPIRED__"
             
             # Check attempt limit (brute force protection) - should not happen if properly handled below
             if otp_attempts >= self.MAX_OTP_ATTEMPTS:
@@ -316,6 +311,35 @@ class Authenticator:
         import re
         pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         return re.match(pattern, email) is not None
+    
+    def resend_otp(self, psid: str, email: str) -> Tuple[bool, str]:
+        """
+        Resend OTP to user's email (used when OTP expires).
+        
+        Args:
+            psid: User's Page-Scoped ID
+            email: User's email address
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            # Check rate limiting
+            can_request, reason = self.can_request_otp(psid, email)
+            if not can_request:
+                return False, reason
+            
+            # Generate and send new OTP
+            otp = self.generate_otp()
+            if self.send_otp_email(email, otp):
+                self.store_otp(psid, email, otp)
+                logger.info(f"Auto-resent OTP to {email} for {psid}")
+                return True, f"📧 Mã OTP cũ đã hết hạn. Mã OTP mới đã được gửi tới {email}."
+            else:
+                return False, f"❌ Không thể gửi email tới {email}. Vui lòng thử lại."
+        except Exception as e:
+            logger.error(f"Error resending OTP: {e}")
+            return False, "❌ Đã xảy ra lỗi. Vui lòng thử lại."
 
     # --- MAIN HANDLERS ---
 
@@ -352,16 +376,37 @@ class Authenticator:
             if auth_state == "awaiting_otp":
                 # User is entering OTP
                 if message_text.isdigit() and len(message_text) == 6:
-                    email = self.verify_otp(psid, message_text) #check limit attempts và otp expiry 
-                    if email:
+                    email_from_session = session.get("email") if session else None
+                    result = self.verify_otp(psid, message_text)  # check limit attempts và otp expiry 
+                    
+                    # Handle OTP expired - auto resend new OTP
+                    if result == "__OTP_EXPIRED__":
+                        if email_from_session:
+                            success, message = self.resend_otp(psid, email_from_session)
+                            self.message_service.send_text_message(psid, message)
+                            if success:
+                                self.message_service.send_text_message(psid, f"⚠️ Bạn có {self.MAX_OTP_ATTEMPTS} lần thử. Mã có hiệu lực trong 5 phút.")
+                        else:
+                            self.message_service.send_text_message(psid, "❌ Mã OTP đã hết hạn. Vui lòng nhập lại email để nhận mã mới.")
+                            self.session_table.update_item(
+                                Key={"psid": psid},
+                                UpdateExpression="SET auth_state = :state",
+                                ExpressionAttributeValues={":state": "awaiting_email"}
+                            )
+                        return {"statusCode": 200, "body": "OTP expired, resent"}
+                    
+                    if result and result != "__OTP_EXPIRED__":
+                        email = result
                         # OTP valid - authenticate user
                         self.session_service.put_new_session(psid)
                         self.session_table.update_item(
                             Key={"psid": psid},
-                            UpdateExpression="SET auth_state = :auth_state, is_authenticated = :is_authenticated",
+                            UpdateExpression="SET auth_state = :auth_state, is_authenticated = :is_authenticated, #ttl_attr = :no_ttl",
+                            ExpressionAttributeNames={"#ttl_attr": "ttl"},
                             ExpressionAttributeValues={
                                 ":auth_state": "authenticated",
-                                ":is_authenticated": True
+                                ":is_authenticated": True,
+                                ":no_ttl": 0  # Remove TTL for authenticated users (keep session forever)
                             }
                         )
                         self.message_service.send_text_message(psid, f"✅ Xác thực thành công! Xin chào {email}")
@@ -369,6 +414,7 @@ class Authenticator:
                         return {"statusCode": 200, "body": "Authenticated"}
                         
                     else:
+                        # OTP invalid (not expired)
                         # Refresh session sau khi verify_otp để lấy state mới nhất
                         session = self.session_table.get_item(Key={"psid": psid})
                         auth_state = session.get("auth_state") if session else None  # Update auth_state
@@ -402,8 +448,15 @@ class Authenticator:
             
             # Default: New user - request email
             else:
-                # Store initial state
-                self.session_service.put_new_session(psid)
-                self.message_service.send_text_message(psid, "👋 Xin chào! Để sử dụng MeetAssist, vui lòng nhập địa chỉ email của bạn.")
+                # User sent a message - request email for authentication
+                if not session:
+                    self.session_service.put_new_session(psid)
+                
+                self.session_table.update_item(
+                    Key={"psid": psid},
+                    UpdateExpression="SET auth_state = :state",
+                    ExpressionAttributeValues={":state": "awaiting_email"}
+                )
+                self.message_service.send_text_message(psid, "👋 Để MeetAssist có thể giúp bạn đặt lịch, vui lòng nhập địa chỉ email của bạn.")
         
         return {"statusCode": 200, "body": "OK"}
