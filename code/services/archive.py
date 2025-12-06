@@ -166,13 +166,12 @@ class ArchiveService:
         writer = csv.writer(csv_buffer)
         
         # Write header (lowercase column names)
-        writer.writerow([col.lower() for col in columns])
+        lower_columns = [col.lower() for col in columns]
+        writer.writerow(lower_columns)
         
         # Write data rows
         for row in rows:
-            csv_row = []
-            for value in row:
-                csv_row.append(self._format_value_for_csv(value))
+            csv_row = [self._format_value_for_csv(value) for value in row]
             writer.writerow(csv_row)
         
         return csv_buffer.getvalue()
