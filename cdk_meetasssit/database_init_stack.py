@@ -167,12 +167,8 @@ class DatabaseInitStack(Stack):
             {"id": "AwsSolutions-L1",
              "reason": "Event handler is the latest Python version, 3.12"}
         ], True)
-        # Add version property to force re-run when data changes
-        import time
-        CustomResource(self, "db-cr", service_token=provider.service_token,
-                       properties={"version": "2025-12-14-v3-add-unaccent-extension"})
 
-
+        
         # Output the secret ARNs
         CfnOutput(self, "DBSecretArn", value=db_instance.secret.secret_name)
         CfnOutput(self, "ReadOnlySecretArn", value=readonly_secret.secret_name)

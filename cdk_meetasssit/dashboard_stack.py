@@ -17,16 +17,12 @@ from aws_cdk import (
     aws_events as events,
     aws_events_targets as targets,
     aws_cognito as cognito,
-    aws_ssm as ssm,
     Stack,
     Duration,
     BundlingOptions,
     CfnOutput,
 )
 from constructs import Construct
-
-# SSM Parameter name for API endpoint (shared between stacks)
-SSM_API_ENDPOINT = "/meetassist/admin/api-endpoint"
 
 
 class DashboardStack(Stack):
@@ -41,6 +37,7 @@ class DashboardStack(Stack):
         readonly_secret: sm.ISecret,
         rds_instance: rds.IDatabaseInstance,
         user_pool: cognito.IUserPool,
+        consultant_user_pool: cognito.IUserPool = None,  # Consultant User Pool for account management
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, description="Admin Dashboard for managing career counseling data", **kwargs)
@@ -173,6 +170,24 @@ class DashboardStack(Stack):
             )
         )
 
+        # Cognito permissions for consultant account management
+        if consultant_user_pool:
+            admin_lambda_role.add_to_policy(
+                iam.PolicyStatement(
+                    actions=[
+                        "cognito-idp:AdminCreateUser",
+                        "cognito-idp:AdminSetUserPassword",
+                        "cognito-idp:AdminUpdateUserAttributes",
+                        "cognito-idp:AdminDisableUser",
+                        "cognito-idp:AdminEnableUser",
+                        "cognito-idp:AdminDeleteUser",
+                        "cognito-idp:AdminGetUser",
+                        "cognito-idp:ListUsers",
+                    ],
+                    resources=[consultant_user_pool.user_pool_arn],
+                )
+            )
+
         admin_manager_lambda = lambda_.Function(
             self,
             "AdminManager",
@@ -204,6 +219,7 @@ class DashboardStack(Stack):
                 "RDS_HOST": rds_instance.db_instance_endpoint_address,
                 "RDS_PORT": str(rds_instance.db_instance_endpoint_port),
                 "RDS_DATABASE": "postgres",
+                "CONSULTANT_USER_POOL_ID": consultant_user_pool.user_pool_id if consultant_user_pool else "",
             },
         )
 
@@ -213,8 +229,8 @@ class DashboardStack(Stack):
             "AdminApi",
             rest_api_name="MeetAssistAdminApi",
             default_cors_preflight_options=apigw.CorsOptions(
-                allow_origins=["*"],  # Có thể lock lại sau với CloudFront domain
-                allow_methods=["GET", "POST", "OPTIONS"],
+                allow_origins=apigw.Cors.ALL_ORIGINS,  # Allow all origins for now
+                allow_methods=apigw.Cors.ALL_METHODS,
                 allow_headers=[
                     "Content-Type",
                     "Authorization",
@@ -222,7 +238,6 @@ class DashboardStack(Stack):
                     "X-Api-Key",
                     "X-Amz-Security-Token",
                 ],
-                allow_credentials=True,
                 max_age=Duration.hours(1),
             ),
             deploy_options=apigw.StageOptions(
@@ -233,8 +248,14 @@ class DashboardStack(Stack):
             ),
         )
 
+        # Include both Admin and Consultant User Pools in authorizer
+        # so both types of users can call the API
+        cognito_pools = [user_pool]
+        if consultant_user_pool:
+            cognito_pools.append(consultant_user_pool)
+            
         authorizer = apigw.CognitoUserPoolsAuthorizer(
-            self, "AdminApiAuthorizer", cognito_user_pools=[user_pool]
+            self, "AdminApiAuthorizer", cognito_user_pools=cognito_pools
         )
 
         admin_resource = admin_api.root.add_resource("admin")
@@ -276,16 +297,6 @@ class DashboardStack(Stack):
             value=admin_manager_lambda.function_name,
             description="Admin Manager Lambda function name (CRUD operations)",
         )
-
-        # ==================== SSM PARAMETER ====================
-        # Lưu API endpoint vào SSM để FrontendStack có thể đọc
-        ssm.StringParameter(
-            self,
-            "ApiEndpointParam",
-            parameter_name=SSM_API_ENDPOINT,
-            string_value=admin_api.url,
-            description="API Gateway endpoint for Admin Dashboard"
-        )
         
-        # Export API endpoint để các stack khác có thể dùng
+        # Export API endpoint for other stacks to use
         self.api_endpoint = admin_api.url

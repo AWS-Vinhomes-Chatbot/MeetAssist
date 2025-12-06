@@ -27,8 +27,9 @@ def handler(event, context):
     
     if event['RequestType'] == 'Delete':
         print("Delete request - no action needed")
+        # IMPORTANT: Must return the same PhysicalResourceId that was used during Create
         return {
-            "PhysicalResourceId": "config-generator",
+            "PhysicalResourceId": event.get('PhysicalResourceId', 'config-generator'),
             "Data": {"Message": "Delete completed"}
         }
     
@@ -47,18 +48,26 @@ def handler(event, context):
         "cognitoClientId": props['CognitoClientId'],
         "cognitoDomain": props['CognitoDomain'],
         "cloudFrontUrl": props['CloudFrontUrl'],
-        "apiEndpoint": api_endpoint
+        "apiEndpoint": api_endpoint,
+        "portalType": props.get('PortalType', 'admin')
     }
+    
+    # Add syncApiEndpoint for admin portal only
+    sync_api_endpoint = props.get('SyncApiEndpoint')
+    if sync_api_endpoint:
+        config["syncApiEndpoint"] = sync_api_endpoint
     
     print(f"Generated config: {json.dumps(config, indent=2)}")
     
-    # Upload config.json to S3 bucket
+    # Upload config.json to S3 bucket with optional key prefix
     bucket_name = props['BucketName']
-    print(f"Uploading config.json to s3://{bucket_name}/config.json")
+    key_prefix = props.get('KeyPrefix', '')
+    config_key = f"{key_prefix}/config.json" if key_prefix else 'config.json'
+    print(f"Uploading config.json to s3://{bucket_name}/{config_key}")
     
     s3.put_object(
         Bucket=bucket_name,
-        Key='config.json',
+        Key=config_key,
         Body=json.dumps(config, indent=2),
         ContentType='application/json',
         CacheControl='no-cache, no-store, must-revalidate'
@@ -68,9 +77,9 @@ def handler(event, context):
     
     # Chỉ cần return dict - Provider sẽ tự động gửi SUCCESS về CloudFormation
     return {
-        "PhysicalResourceId": "config-generator",
+        "PhysicalResourceId": f"config-generator-{key_prefix or 'root'}",
         "Data": {
             "ConfigJson": json.dumps(config),
-            "S3Location": f"s3://{bucket_name}/config.json"
+            "S3Location": f"s3://{bucket_name}/{config_key}"
         }
     }

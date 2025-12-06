@@ -124,7 +124,6 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
                 fullname=body.get('fullname'),
                 email=body.get('email'),
                 phonenumber=body.get('phonenumber'),
-                imageurl=body.get('imageurl'),
                 specialties=body.get('specialties'),
                 qualifications=body.get('qualifications'),
                 joindate=body.get('joindate')
@@ -137,7 +136,6 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
                 fullname=body.get('fullname'),
                 email=body.get('email'),
                 phonenumber=body.get('phonenumber'),
-                imageurl=body.get('imageurl'),
                 specialties=body.get('specialties'),
                 qualifications=body.get('qualifications'),
                 joindate=body.get('joindate'),
@@ -288,6 +286,68 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
         
         elif action == 'get_stats':
             data = service.get_database_stats()
+            return success_response(data)
+        
+        # ==================== CONSULTANT PORTAL ACTIONS ====================
+        
+        elif action == 'get_consultant_by_email':
+            email = body.get('email')
+            if not email:
+                return error_response("Missing 'email' in request body", 400)
+            data = service.get_consultant_by_email(email=email)
+            if data is None:
+                return error_response("Consultant not found", 404)
+            return success_response(data)
+        
+        elif action == 'get_my_schedule':
+            consultant_id = body.get('consultant_id')
+            if not consultant_id:
+                return error_response("Missing 'consultant_id' in request body", 400)
+            data = service.get_my_schedule(
+                consultant_id=consultant_id,
+                date_from=body.get('date_from'),
+                date_to=body.get('date_to'),
+                is_available=body.get('is_available'),
+                limit=body.get('limit', 100),
+                offset=body.get('offset', 0)
+            )
+            return success_response(data)
+        
+        elif action == 'get_my_appointments':
+            consultant_id = body.get('consultant_id')
+            if not consultant_id:
+                return error_response("Missing 'consultant_id' in request body", 400)
+            data = service.get_my_appointments(
+                consultant_id=consultant_id,
+                status=body.get('status'),
+                date_from=body.get('date_from'),
+                date_to=body.get('date_to'),
+                limit=body.get('limit', 100),
+                offset=body.get('offset', 0)
+            )
+            return success_response(data)
+        
+        elif action == 'confirm_appointment':
+            consultant_id = body.get('consultant_id')
+            appointment_id = body.get('appointment_id')
+            if not consultant_id or not appointment_id:
+                return error_response("Missing 'consultant_id' or 'appointment_id' in request body", 400)
+            data = service.confirm_appointment(
+                consultant_id=consultant_id,
+                appointment_id=appointment_id
+            )
+            return success_response(data)
+        
+        elif action == 'deny_appointment':
+            consultant_id = body.get('consultant_id')
+            appointment_id = body.get('appointment_id')
+            if not consultant_id or not appointment_id:
+                return error_response("Missing 'consultant_id' or 'appointment_id' in request body", 400)
+            data = service.deny_appointment(
+                consultant_id=consultant_id,
+                appointment_id=appointment_id,
+                reason=body.get('reason')
+            )
             return success_response(data)
         
         else:
