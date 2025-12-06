@@ -159,7 +159,29 @@ def process_chat_message(psid: str, user_question: str, original_event: dict):
     session = session_service.get_session(psid)
     is_authenticated = session.get("is_authenticated", False) if session else False
     
-    if not is_authenticated and user_question == "GET_STARTED":
+    # Handle GET_STARTED - show welcome message for all users
+    if user_question == "GET_STARTED":
+        welcome_msg = (
+            "Xin chào! 👋\n\n"
+            "Mình là MeetAssist, trợ lý đặt lịch hẹn tư vấn hướng nghiệp.\n\n"
+            "Bạn có thể:\n"
+            "• 📅 Đặt lịch hẹn với tư vấn viên\n"
+            "• 🔄 Đổi lịch hẹn đã đặt\n"
+            "• ❌ Hủy lịch hẹn\n"
+            "• ❓ Hỏi về tư vấn viên, lịch trống"
+        )
+        mess.send_text_message(psid, welcome_msg)
+        
+        if not is_authenticated:
+            # Unauthenticated user - ask for message to start auth
+            mess.send_text_message(psid, "\n💬 Hãy nhắn tin bất kì để bắt đầu sử dụng dịch vụ!")
+        else:
+            # Authenticated user - ready to use
+            mess.send_text_message(psid, "\n💬 Bạn có thể bắt đầu chat với mình ngay!")
+        return
+    
+    # Handle authentication flow for unauthenticated users
+    if not is_authenticated:
         logger.info(f"User {psid} not authenticated, delegating to auth handler")
         auth.handle_user_authorization_event(psid, user_question)
         return

@@ -448,18 +448,15 @@ class Authenticator:
             
             # Default: New user - request email
             else:
-                # Store initial state
-                self.session_service.put_new_session(psid)
-                welcome_msg = (
-            "Xin chào! 👋\n\n"
-            "Mình là MeetAssist, trợ lý đặt lịch hẹn tư vấn hướng nghiệp.\n\n"
-            "Bạn có thể:\n"
-            "• 📅 Đặt lịch hẹn với tư vấn viên\n"
-            "• 🔄 Đổi lịch hẹn đã đặt\n"
-            "• ❌ Hủy lịch hẹn\n"
-            "• ❓ Hỏi về tư vấn viên, lịch trống\n\n"
-            "👋 Để MeetAssist có thể giúp bạn đặt lịch, vui lòng nhập địa chỉ email của bạn."
-        )
-                self.message_service.send_text_message(psid, welcome_msg)
+                # User sent a message - request email for authentication
+                if not session:
+                    self.session_service.put_new_session(psid)
+                
+                self.session_table.update_item(
+                    Key={"psid": psid},
+                    UpdateExpression="SET auth_state = :state",
+                    ExpressionAttributeValues={":state": "awaiting_email"}
+                )
+                self.message_service.send_text_message(psid, "👋 Để MeetAssist có thể giúp bạn đặt lịch, vui lòng nhập địa chỉ email của bạn.")
         
         return {"statusCode": 200, "body": "OK"}

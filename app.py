@@ -34,6 +34,18 @@ app = cdk.App()
 env = cdk.Environment(region="ap-northeast-1")  # Tokyo region
 
 vpc_stack = VpcStack(app, "AppStack", env=env)
+
+# Create Data Indexer stack first (so we can pass its function ARN to DatabaseInitStack)
+data_indexer_stack = DataIndexerStack(
+    app, "DataIndexerStack", 
+    db_instance=vpc_stack.rds_instance, 
+    vpc=vpc_stack.vpc,
+    security_group=vpc_stack.security_group, 
+    readonly_secret=vpc_stack.readonly_secret,
+    env=env
+)
+
+# Create DatabaseInitStack with Data Indexer function ARN
 db_init_stack = DatabaseInitStack(
     app, "DatabaseInitStack",
     db_instance=vpc_stack.rds_instance,
@@ -41,10 +53,10 @@ db_init_stack = DatabaseInitStack(
     security_group=vpc_stack.security_group,
     readonly_secret=vpc_stack.readonly_secret,
     data_stored_bucket=vpc_stack.data_stored_bucket,
+    indexer_function_arn=data_indexer_stack.indexer_function.function_arn,
     env=env
 )
-data_indexer_stack = DataIndexerStack(app, "DataIndexerStack", db_instance=vpc_stack.rds_instance, vpc=vpc_stack.vpc,
-                                      security_group=vpc_stack.security_group, readonly_secret=vpc_stack.readonly_secret,env=env)
+db_init_stack.add_dependency(data_indexer_stack)
 text2sql_stack = Text2SQLStack(app, "Text2SQLStack", db_instance=vpc_stack.rds_instance, vpc=vpc_stack.vpc,
                                security_group=vpc_stack.security_group, readonly_secret=vpc_stack.readonly_secret, env=env)
 auth_stack = AuthStack(app, "AuthStack", env=env)

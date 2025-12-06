@@ -123,7 +123,7 @@ class BedrockService:
         
         self.max_tokens = max_tokens or int(os.environ.get("BEDROCK_MAX_TOKENS", "1500"))  # Giới hạn để tránh vượt 2000 chars
         self.temperature = temperature if temperature is not None else float(os.environ.get("BEDROCK_TEMPERATURE", "0.5"))
-        self.top_k = 250
+        self.top_k = 100
         self.top_p = 0.9
         
         logger.info(f"BedrockService initialized with model: {self.model_id}, "
@@ -342,10 +342,10 @@ class BedrockService:
 ### Ví dụ 1 - Query đơn giản:
 Schema: customer(customerid, fullname, phonenumber, dateofbirth)
 Question: Lấy tên khách hàng có id là 123
-<reasoning>Cần cột fullname từ bảng customer, filter theo customerid. 1 placeholder cho id.</reasoning>
-<sql>SELECT fullname FROM customer WHERE customerid = %s</sql>
-<params>[123]</params>
-<validation>1 placeholder = 1 param ✓ | bảng customer, cột fullname, customerid tồn tại ✓</validation>
+<reasoning>Cần cột fullname từ bảng customer, filter theo customerid (VARCHAR). Cast param về VARCHAR.</reasoning>
+<sql>SELECT fullname FROM customer WHERE customerid = %s::VARCHAR</sql>
+<params>["123"]</params>
+<validation>1 placeholder = 1 param ✓ | bảng customer, cột fullname, customerid tồn tại ✓ | param cast to VARCHAR ✓</validation>
 
 ### Ví dụ 2 - Tìm kiếm Tiếng Việt (CÓ DẤU & KHÔNG DẤU):
 Schema: consultant(consultantid, fullname, specialties)
@@ -400,19 +400,19 @@ Question: Tư vấn viên nào có hơn 10 cuộc hẹn hoàn thành?
 Schema: appointment(appointmentid, customerid, consultantid, date, time, status), consultant(consultantid, fullname), customer(customerid, fullname)
 THÔNG TIN USER HIỆN TẠI: customer_id = "fb_12345"
 Question: Cho xem lịch hẹn của tôi
-<reasoning>User hỏi "của tôi" → dùng customer_id từ context. Filter appointment theo customerid = %s.</reasoning>
-<sql>SELECT a.appointmentid, a.date, a.time, a.status, c.fullname as consultant_name FROM appointment a JOIN consultant c ON a.consultantid = c.consultantid WHERE a.customerid = %s ORDER BY a.date DESC, a.time DESC</sql>
+<reasoning>User hỏi "của tôi" → dùng customer_id từ context. Filter appointment theo customerid, cast param về VARCHAR.</reasoning>
+<sql>SELECT a.appointmentid, a.date, a.time, a.status, c.fullname as consultant_name FROM appointment a JOIN consultant c ON a.consultantid = c.consultantid WHERE a.customerid = %s::VARCHAR ORDER BY a.date DESC, a.time DESC</sql>
 <params>["fb_12345"]</params>
-<validation>1 placeholder = 1 param ✓ | customer_id từ context ✓</validation>
+<validation>1 placeholder = 1 param ✓ | customer_id từ context ✓ | param cast to VARCHAR ✓</validation>
 
 ### Ví dụ 10 - QUERY "CỦA TÔI" KẾT HỢP ĐIỀU KIỆN:
 Schema: appointment(appointmentid, customerid, consultantid, date, time, status)
 THÔNG TIN USER HIỆN TẠI: customer_id = "fb_67890"
 Question: Lịch hẹn sắp tới của mình tuần này
 <reasoning>"của mình" → dùng customer_id. "sắp tới" → status='upcoming'. "tuần này" → date trong tuần hiện tại.</reasoning>
-<sql>SELECT appointmentid, date, time FROM appointment WHERE customerid = %s AND status = 'upcoming' AND date >= date_trunc('week', CURRENT_DATE) AND date < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days' ORDER BY date ASC, time ASC</sql>
+<sql>SELECT appointmentid, date, time FROM appointment WHERE customerid = %s::VARCHAR AND status = 'upcoming' AND date >= date_trunc('week', CURRENT_DATE) AND date < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days' ORDER BY date ASC, time ASC</sql>
 <params>["fb_67890"]</params>
-<validation>1 placeholder = 1 param ✓ | status cố định ✓ | customer_id từ context ✓</validation>
+<validation>1 placeholder = 1 param ✓ | status cố định ✓ | customer_id từ context ✓ | param cast to VARCHAR ✓</validation>
 
 
 ---
@@ -875,7 +875,7 @@ USER MESSAGE: "{message}"
 ## QUY TẮC:
 1. KHÔNG DELETE - chỉ UPDATE status thành 'cancelled'
 2. Dùng %s cho params, KHÔNG nối chuỗi
-3. UPDATE appointment phải có WHERE appointmentid = %s AND customerid = %s (bảo mật)
+3. UPDATE appointment phải có WHERE appointmentid = %s AND customerid = %s::VARCHAR (cast tham số về VARCHAR)
 4. RETURNING để xác nhận
 
 ## SCHEMA (chỉ các bảng liên quan):
@@ -911,7 +911,7 @@ Bước 2: INSERT appointment mới với status='pending'
 ```sql
 WITH cancel_old AS (
     UPDATE appointment SET status = 'cancelled', updatedat = CURRENT_TIMESTAMP
-    WHERE appointmentid = %s AND customerid = %s
+    WHERE appointmentid = %s AND customerid = %s::VARCHAR
     RETURNING customerid, consultantid
 )
 INSERT INTO appointment (customerid, consultantid, date, time, status)
@@ -926,7 +926,7 @@ UPDATE appointment → status='cancelled'
 ⚠️ WHERE phải có customerid để verify ownership!
 ```sql
 UPDATE appointment SET status = 'cancelled', updatedat = CURRENT_TIMESTAMP
-WHERE appointmentid = %s AND customerid = %s
+WHERE appointmentid = %s AND customerid = %s::VARCHAR
 RETURNING appointmentid
 ```
 params: [appointment_id, customer_id]
@@ -1309,11 +1309,11 @@ params: [appointment_id, customer_id]
 ## CÂU HỎI HIỆN TẠI CỦA KHÁCH HÀNG:
 "{question}"
 
-## KẾT QUẢ TRUY VẤN TỪ DATABASE (DỮ LIỆU DUY NHẤT ĐỂ TRẢ LỜI):
+## KẾT QUẢ TRUY VẤN (DỮ LIỆU DUY NHẤT ĐỂ TRẢ LỜI):
 {results}
 
 ## QUY TẮC:
-1. **CHỈ trả lời dựa trên KẾT QUẢ TRUY VẤN** - đây là dữ liệu chính xác từ database
+1. **CHỈ trả lời dựa trên KẾT QUẢ TRUY VẤN** - đây là dữ liệu chính xác 
 2. Ngữ cảnh chỉ giúp hiểu user muốn gì, KHÔNG dùng thông tin từ ngữ cảnh để trả lời
 3. Trả lời bằng tiếng Việt tự nhiên, thân thiện, đúng trọng tâm câu hỏi
 4. KHÔNG đề cập đến SQL, database, schema hay bất kỳ khía cạnh kỹ thuật nào
