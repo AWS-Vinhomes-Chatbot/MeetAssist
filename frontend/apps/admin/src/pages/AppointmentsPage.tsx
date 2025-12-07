@@ -14,6 +14,7 @@ import {
   getScheduleByConsultant
 } from '../services/api.service';
 import { formatDateVN, formatTimeVN, statusToVietnamese, getStatusBadgeClass } from '../utils/formatters';
+import { Edit2, Trash2, Plus } from 'lucide-react';
 
 // Helper function to get local date string (YYYY-MM-DD) instead of UTC
 const getLocalDateString = (date: Date = new Date()): string => {
@@ -107,13 +108,12 @@ export default function AppointmentsPage() {
     }
   };
 
-  const fetchAvailableSlots = async (consultantId: number, date: string) => {
+  const fetchAvailableSlots = async (consultantId: number, date: string, currentTime?: string) => {
     if (!consultantId || !date) {
       setAvailableSlots([]);
       return;
     }
 
-    console.log('Fetching slots for consultant:', consultantId, 'date:', date);
     setLoadingSlots(true);
     try {
       const response = await getScheduleByConsultant(
@@ -122,11 +122,21 @@ export default function AppointmentsPage() {
         date
       );
       
-      console.log('Schedule response:', response);
-      
-      // Filter only available slots for the selected date
       const slots = (response.schedules || [])
-        .filter((slot: any) => slot.date === date && slot.isavailable && !slot.has_appointment)
+        .filter((slot: any) => {
+          // Must match the selected date
+          if (slot.date !== date) return false;
+          
+          // When editing: include current slot even if it has appointment
+          // When creating: only show available slots without appointments
+          if (editingAppointment && currentTime) {
+            // Include if: (1) it's available and no appointment, OR (2) it's the current slot being edited
+            return (slot.isavailable && !slot.has_appointment) || (slot.starttime === currentTime);
+          } else {
+            // Creating new: only available slots without appointments
+            return slot.isavailable && !slot.has_appointment;
+          }
+        })
         .map((slot: any) => ({
           scheduleid: slot.scheduleid,
           starttime: slot.starttime,
@@ -135,8 +145,7 @@ export default function AppointmentsPage() {
       
       setAvailableSlots(slots);
       
-      // Auto-select first slot if available
-      if (slots.length > 0 && !formData.time) {
+      if (!editingAppointment && slots.length > 0 && !formData.time) {
         setFormData(prev => ({ ...prev, time: slots[0].starttime }));
       }
     } catch (error) {
@@ -178,8 +187,7 @@ export default function AppointmentsPage() {
     });
     setAvailableSlots([]);
     setIsModalOpen(true);
-    // Fetch available slots for editing too
-    fetchAvailableSlots(appointment.consultantid, appointment.date);
+    fetchAvailableSlots(appointment.consultantid, appointment.date, appointment.time);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -253,7 +261,8 @@ export default function AppointmentsPage() {
         title="Quản lý Lịch hẹn" 
         subtitle="Quản lý các cuộc hẹn tư vấn"
         actions={
-          <Button onClick={handleCreate} icon="➕">
+          <Button onClick={handleCreate}>
+            <Plus size={16} className="mr-1" />
             Thêm Lịch Hẹn
           </Button>
         }
@@ -331,14 +340,14 @@ export default function AppointmentsPage() {
                               className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
                               title="Chỉnh sửa"
                             >
-                              ✏️
+                              <Edit2 size={16} />
                             </button>
                             <button
                               onClick={() => handleDelete(appointment.appointmentid)}
                               className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                               title="Xóa"
                             >
-                              🗑️
+                              <Trash2 size={16} />
                             </button>
                           </div>
                         </td>

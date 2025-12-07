@@ -1,4 +1,5 @@
 import React, { ReactNode, useEffect } from 'react';
+import { Info, CheckCircle, AlertCircle, AlertTriangle } from 'lucide-react';
 
 interface ModalProps {
   isOpen: boolean;
@@ -42,11 +43,18 @@ export const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
-  const iconMap = {
-    info: '💡',
-    success: '✅',
-    error: '❌',
-    warning: '⚠️',
+  const IconComponent = {
+    info: Info,
+    success: CheckCircle,
+    error: AlertCircle,
+    warning: AlertTriangle,
+  }[type];
+
+  const iconColorClasses = {
+    info: 'text-blue-500',
+    success: 'text-green-500',
+    error: 'text-red-500',
+    warning: 'text-yellow-500',
   };
 
   const sizeClasses = {
@@ -71,7 +79,7 @@ export const Modal: React.FC<ModalProps> = ({
         {/* Header */}
         <div className="flex items-center p-5 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">{iconMap[type]}</span>
+            <IconComponent className={`${iconColorClasses[type]} flex-shrink-0`} size={24} />
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h2>
           </div>
         </div>

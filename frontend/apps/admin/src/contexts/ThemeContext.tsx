@@ -11,11 +11,10 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Force light theme always
+  
   const theme: Theme = 'light';
 
   const toggleTheme = () => {
-    // No-op: dark mode removed
   };
 
   const value = useMemo(() => ({
