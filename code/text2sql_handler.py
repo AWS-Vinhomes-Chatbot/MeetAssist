@@ -202,18 +202,18 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 return {
                     "statusCode": 503,
                     "body": json.dumps({
-                        "response": sql_result.get("body", {}).get("response", "⏳ Hệ thống đang bận, vui lòng chờ 1 phút rồi gửi lại yêu cầu nhé!"),
+                        "response": ( "⏳ Hệ thống đang bận, vui lòng chờ 1 phút rồi gửi lại yêu cầu nhé!"),
                         "error": "throttling"
                     }),
                     "headers": {"Content-Type": "application/json"}
                 }
             
-            # Other errors
+            # Other errors - SQL generation failed
             logger.error(f"Failed to generate SQL. Response: {sql_result}")
             return {
                 "statusCode": status_code,
                 "body": json.dumps({
-                    "response": "Không thể tạo truy vấn SQL cho câu hỏi này. Vui lòng thử lại.",
+                    "response": "Xin lỗi, mình không thể trả lời câu hỏi này của bạn. 🙏\n\nBạn có thể thử:\n• Hỏi về lịch hẹn, tư vấn viên, hoặc lịch trống\n• Đặt/hủy/đổi lịch hẹn\n",
                     "error": "sql_generation_failed"
                 }),
                 "headers": {"Content-Type": "application/json"}
@@ -251,7 +251,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return {
             "statusCode": 500,
             "body": json.dumps({
-                "response": "Đã xảy ra lỗi khi xử lý câu hỏi của bạn.",
+                "response": "Xin lỗi, mình không thể trả lời câu hỏi này của bạn. 🙏\n\nVui lòng thử lại hoặc liên hệ admin nếu vấn đề vẫn tiếp tục!",
                 "error": str(e)
             }),
             "headers": {"Content-Type": "application/json"}

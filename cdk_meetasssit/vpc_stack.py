@@ -71,6 +71,15 @@ class VpcStack(Stack):
         self.vpc.add_flow_log("FlowLog")
         self.subnet = self.vpc.isolated_subnets[0]
 
+        # Create parameter group with UTC+7 timezone (Asia/Bangkok)
+        parameter_group = rds.ParameterGroup(self, "PostgresParameterGroup",
+            engine=rds.DatabaseInstanceEngine.postgres(
+                version=rds.PostgresEngineVersion.VER_16),
+            parameters={
+                "timezone": "Asia/Bangkok"  # UTC+7 (same as Vietnam)
+            }
+        )
+
         # Create a PostgreSQL DB Instance - using t3.micro for cost savings
         rds_instance = rds.DatabaseInstance(self, "AppDatabaseInstance",
                                             engine=rds.DatabaseInstanceEngine.postgres(
@@ -84,6 +93,7 @@ class VpcStack(Stack):
                                             vpc_subnets=ec2.SubnetSelection(
                                                 subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
                                             ),
+                                            parameter_group=parameter_group,
                                             )
         rds_instance.add_rotation_single_user()
         rds_instance.apply_removal_policy(RemovalPolicy.DESTROY)

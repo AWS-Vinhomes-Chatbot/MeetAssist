@@ -91,6 +91,8 @@ class PostgreSQLService:
             
             # Configure connection to handle decimals as floats
             conn.execute("SET extra_float_digits = 3")
+            # Set timezone to UTC+7 (Vietnam time)
+            conn.execute("SET TIME ZONE 'Asia/Bangkok'")
             
             return conn
         except Exception as e:

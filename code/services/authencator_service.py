@@ -87,6 +87,7 @@ class Authenticator:
         """Check if user can request new OTP (rate limiting)."""
         try:
             session = self.session_table.get_item(Key={"psid": psid})
+            
             if not session:
                 return True, "New user"
             
@@ -165,6 +166,7 @@ class Authenticator:
             
             # Get existing session for rate limiting data
             session = self.session_table.get_item(Key={"psid": psid})
+            
             otp_request_count = 1
             otp_request_window_start = timestamp
             
@@ -203,6 +205,7 @@ class Authenticator:
         """Verify OTP code with timing attack protection and attempt limiting."""
         try:
             session = self.session_table.get_item(Key={"psid": psid})
+            
             if not session:
                 return None
             
@@ -293,6 +296,7 @@ class Authenticator:
         """Get remaining OTP verification attempts."""
         try:
             session = self.session_table.get_item(Key={"psid": psid})
+            
             if not session:
                 return self.MAX_OTP_ATTEMPTS
             otp_attempts = session.get("otp_attempts", 0)
@@ -367,10 +371,13 @@ class Authenticator:
         - authenticated: User successfully authenticated
         """
         logger.info(f"Processing auth for PSID {psid}: {message_text}")
-        session = self.session_table.get_item(Key={"psid": psid})    
+        session = self.session_table.get_item(Key={"psid": psid})
+        
+        
         # Check authentication state
         if not session or not session.get("is_authenticated"):
             auth_state = session.get("auth_state") if session else None
+            logger.info(f"🔐 Auth flow - state: {auth_state}, message: {message_text[:50]}")
             
             # State: Awaiting OTP input
             if auth_state == "awaiting_otp":
@@ -410,7 +417,7 @@ class Authenticator:
                             }
                         )
                         self.message_service.send_text_message(psid, f"✅ Xác thực thành công! Xin chào {email}")
-                        self.message_service.send_text_message(psid, "Bạn có thể bắt đầu chat với bot.")
+                        self.message_service.send_text_message(psid, "Bây giờ bạn có thể nhờ mình hỗ trợ đặt lịch nè.")
                         return {"statusCode": 200, "body": "Authenticated"}
                         
                     else:
@@ -446,17 +453,6 @@ class Authenticator:
                 else:
                     self.message_service.send_text_message(psid, "❌ Email không hợp lệ. Vui lòng nhập lại địa chỉ email của bạn.")
             
-            # Default: New user - request email
-            else:
-                # User sent a message - request email for authentication
-                if not session:
-                    self.session_service.put_new_session(psid)
-                
-                self.session_table.update_item(
-                    Key={"psid": psid},
-                    UpdateExpression="SET auth_state = :state",
-                    ExpressionAttributeValues={":state": "awaiting_email"}
-                )
-                self.message_service.send_text_message(psid, "👋 Để MeetAssist có thể giúp bạn đặt lịch, vui lòng nhập địa chỉ email của bạn.")
-        
+            
+
         return {"statusCode": 200, "body": "OK"}
