@@ -1913,13 +1913,23 @@ class Admin:
                 
                 self.conn.commit()
             
+            # Build response with email details for frontend
             self._log_info(f"Consultant {consultant_id} confirmed appointment {appointment_id}")
             return {
                 "success": True,
                 "appointment_id": updated[0],
                 "status": updated[4],
                 "updated_at": str(updated[5]),
-                "message": "Appointment confirmed successfully"
+                "message": "Appointment confirmed successfully",
+                # Email details for frontend to send notification
+                "customer_email": detail[7] if detail else None,
+                "customer_name": detail[6] if detail else None,
+                "consultant_name": detail[8] if detail else None,
+                "date": str(detail[1]) if detail else None,
+                "time": str(detail[2]) if detail else None,
+                "duration": detail[3] if detail else None,
+                "meeting_url": detail[4] if detail else None,
+                "description": detail[5] if detail else None,
             }
             
         except Exception as e:
@@ -1994,15 +2004,39 @@ class Admin:
                 """, (updated[1], updated[2], updated[3]))
                 self._log_info(f"Auto-enabled schedule slot for cancelled appointment {appointment_id}")
                 
+                # Fetch full appointment details for email notification (BEFORE commit)
+                detail_query = """
+                    SELECT 
+                        a.appointmentid, a.date, a.time, a.duration, a.description,
+                        c.fullname as customer_name, c.email as customer_email,
+                        cs.fullname as consultant_name
+                    FROM appointment a
+                    JOIN customer c ON a.customerid = c.customerid
+                    JOIN consultant cs ON a.consultantid = cs.consultantid
+                    WHERE a.appointmentid = %s
+                """
+                cur.execute(detail_query, [appointment_id])
+                detail = cur.fetchone()
+                
                 self.conn.commit()
                 
+            # Build response with email details for frontend
             self._log_info(f"Consultant {consultant_id} cancelled appointment {appointment_id}")
             return {
                 "success": True,
                 "appointment_id": updated[0],
                 "status": updated[4],
                 "updated_at": str(updated[5]),
-                "message": "Appointment cancelled successfully"
+                "message": "Appointment cancelled successfully",
+                # Email details for frontend to send notification
+                "customer_email": detail[6] if detail else None,
+                "customer_name": detail[5] if detail else None,
+                "consultant_name": detail[7] if detail else None,
+                "date": str(detail[1]) if detail else None,
+                "time": str(detail[2]) if detail else None,
+                "duration": detail[3] if detail else None,
+                "description": detail[4] if detail else None,
+                "cancellation_reason": reason,
             }
             
         except Exception as e:

@@ -84,6 +84,27 @@ export default function AppointmentsPage({ consultantId }: Props) {
     try {
       const result = await apiService.confirmAppointment(consultantId, modalState.appointmentId);
       if (result.success) {
+        // Auto-send confirmation email to customer
+        if (result.customer_email && result.customer_name && result.consultant_name) {
+          try {
+            await apiService.sendConfirmationEmail({
+              appointment_id: modalState.appointmentId,
+              customer_email: result.customer_email,
+              customer_name: result.customer_name,
+              consultant_name: result.consultant_name,
+              date: result.date || '',
+              time: result.time || '',
+              duration: result.duration,
+              meeting_url: result.meeting_url,
+              description: result.description
+            });
+            console.log('Confirmation email sent successfully');
+          } catch (emailErr) {
+            // Email sending failed but appointment is already confirmed
+            console.error('Failed to send confirmation email:', emailErr);
+            // Don't show error to user - appointment is confirmed successfully
+          }
+        }
         loadAppointments();
       } else {
         setModalState({
@@ -125,6 +146,25 @@ export default function AppointmentsPage({ consultantId }: Props) {
     try {
       const result = await apiService.denyAppointment(consultantId, appointmentId, reason || undefined);
       if (result.success) {
+        // Auto-send cancellation email to customer
+        if (result.customer_email && result.customer_name && result.consultant_name) {
+          try {
+            await apiService.sendCancellationEmail({
+              appointment_id: appointmentId,
+              customer_email: result.customer_email,
+              customer_name: result.customer_name,
+              consultant_name: result.consultant_name,
+              date: result.date || '',
+              time: result.time || '',
+              duration: result.duration,
+              description: result.description,
+              cancellation_reason: result.cancellation_reason
+            });
+          } catch (emailErr) {
+            // Email sending failed but appointment is already cancelled
+            console.error('Failed to send cancellation email:', emailErr);
+          }
+        }
         loadAppointments();
       } else {
         setModalState({

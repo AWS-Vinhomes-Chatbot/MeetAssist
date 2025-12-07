@@ -92,7 +92,54 @@ class ApiService {
       success: boolean;
       message: string;
       error?: string;
+      // Email details for notification
+      customer_email?: string;
+      customer_name?: string;
+      consultant_name?: string;
+      date?: string;
+      time?: string;
+      duration?: number;
+      meeting_url?: string;
+      description?: string;
     }>('confirm_appointment', { consultant_id: consultantId, appointment_id: appointmentId });
+  }
+
+  // Send confirmation email (called after appointment is confirmed)
+  async sendConfirmationEmail(data: {
+    appointment_id: number;
+    customer_email: string;
+    customer_name: string;
+    consultant_name: string;
+    date: string;
+    time: string;
+    duration?: number;
+    meeting_url?: string;
+    description?: string;
+  }) {
+    // Different endpoint - calls EmailNotificationLambda (outside VPC)
+    const apiUrl = config.apiEndpoint.endsWith('/') 
+      ? `${config.apiEndpoint}admin/send-email`
+      : `${config.apiEndpoint}/admin/send-email`;
+      
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ 
+        action: 'send_confirmation_email',
+        ...data
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Failed to send email' }));
+      throw new Error(error.error || `Email sending failed with status ${response.status}`);
+    }
+
+    return response.json() as Promise<{
+      success: boolean;
+      message: string;
+      error?: string;
+    }>;
   }
 
   // Deny/Cancel appointment
@@ -101,7 +148,53 @@ class ApiService {
       success: boolean;
       message: string;
       error?: string;
+      // Email details for notification
+      customer_email?: string;
+      customer_name?: string;
+      consultant_name?: string;
+      date?: string;
+      time?: string;
+      duration?: number;
+      description?: string;
+      cancellation_reason?: string;
     }>('deny_appointment', { consultant_id: consultantId, appointment_id: appointmentId, reason });
+  }
+
+  // Send cancellation email (called after appointment is denied)
+  async sendCancellationEmail(data: {
+    appointment_id: number;
+    customer_email: string;
+    customer_name: string;
+    consultant_name: string;
+    date: string;
+    time: string;
+    duration?: number;
+    description?: string;
+    cancellation_reason?: string;
+  }) {
+    const apiUrl = config.apiEndpoint.endsWith('/') 
+      ? `${config.apiEndpoint}admin/send-email`
+      : `${config.apiEndpoint}/admin/send-email`;
+      
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ 
+        action: 'send_cancellation_email',
+        ...data
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Failed to send email' }));
+      throw new Error(error.error || `Email sending failed with status ${response.status}`);
+    }
+
+    return response.json() as Promise<{
+      success: boolean;
+      message: string;
+      error?: string;
+    }>;
   }
 
   // Complete appointment

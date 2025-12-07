@@ -258,6 +258,59 @@ class DashboardStack(Stack):
             self, "AdminApiAuthorizer", cognito_user_pools=cognito_pools
         )
 
+        # ==================== EMAIL NOTIFICATION LAMBDA (OUTSIDE VPC) ====================
+        # This Lambda sends email notifications via SES
+        # Deployed OUTSIDE VPC to avoid NAT Gateway/VPC Endpoint costs
+        # Frontend calls this after AdminManager confirms appointment
+        
+        email_lambda_role = iam.Role(
+            self,
+            "EmailNotificationRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                )
+            ],
+        )
+
+        # SES permissions
+        email_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ses:SendEmail", "ses:SendRawEmail"],
+                resources=["*"],
+            )
+        )
+
+        email_notification_lambda = lambda_.Function(
+            self,
+            "EmailNotification",
+            function_name="DashboardStack-EmailNotification",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="notification_handler.lambda_handler",
+            role=email_lambda_role,
+            code=lambda_.Code.from_asset(
+                lambda_code_path,
+                bundling=BundlingOptions(
+                    image=lambda_.Runtime.PYTHON_3_12.bundling_image,
+                    command=[
+                        "bash",
+                        "-c",
+                        "pip install --platform manylinux2014_x86_64 --target /asset-output "
+                        + "--implementation cp --python-version 3.12 --only-binary=:all: "
+                        + "--upgrade -r requirements.txt && cp -r . /asset-output",
+                    ],
+                ),
+            ),
+            # NO VPC configuration - can directly access SES
+            memory_size=512,
+            timeout=Duration.seconds(30),
+            log_retention=logs.RetentionDays.ONE_WEEK,
+            environment={
+                "SENDER_EMAIL": "pqa1085@gmail.com",  # Update with your verified SES email
+            },
+        )
+
         admin_resource = admin_api.root.add_resource("admin")
 
         # ENDPOINT 1: POST /admin/execute-sql
@@ -265,6 +318,17 @@ class DashboardStack(Stack):
         sql_execute_resource.add_method(
             "POST",
             apigw.LambdaIntegration(admin_manager_lambda),
+            authorization_type=apigw.AuthorizationType.COGNITO,
+            authorizer=authorizer,
+        )
+        
+        # ENDPOINT 2: POST /admin/send-email (Email Notification)
+        # Called by frontend after appointment confirmation
+        # NO authorization required - frontend already authenticated to call confirm
+        send_email_resource = admin_resource.add_resource("send-email")
+        send_email_resource.add_method(
+            "POST",
+            apigw.LambdaIntegration(email_notification_lambda),
             authorization_type=apigw.AuthorizationType.COGNITO,
             authorizer=authorizer,
         )
@@ -296,6 +360,13 @@ class DashboardStack(Stack):
             "AdminManagerLambdaName",
             value=admin_manager_lambda.function_name,
             description="Admin Manager Lambda function name (CRUD operations)",
+        )
+        
+        CfnOutput(
+            self,
+            "EmailNotificationLambdaName",
+            value=email_notification_lambda.function_name,
+            description="Email Notification Lambda function name (SES - outside VPC)",
         )
         
         # Export API endpoint for other stacks to use
