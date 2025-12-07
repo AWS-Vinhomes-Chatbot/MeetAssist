@@ -108,7 +108,7 @@ export interface Consultant {
 export interface Appointment {
   appointmentid: number;
   consultantid: number;
-  customerid: number;
+  customerid: string; // Facebook User ID (VARCHAR)
   date: string;
   time: string;
   duration: number;
@@ -125,7 +125,7 @@ export interface Appointment {
 }
 
 export interface Customer {
-  customerid: number;
+  customerid: string; // Facebook User ID (VARCHAR)
   fullname: string;
   email: string;
   phonenumber?: string;

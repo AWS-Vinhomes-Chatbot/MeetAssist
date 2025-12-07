@@ -145,12 +145,12 @@ class Admin:
 
     # ==================== CUSTOMER CRUD ====================
     
-    def get_customer_by_id(self, customerid: int) -> Dict[str, Any]:
+    def get_customer_by_id(self, customerid: str) -> Dict[str, Any]:
         """
         Get a single customer by ID
         
         Args:
-            customerid: Customer ID
+            customerid: Customer ID (VARCHAR - FB User ID or UUID)
             
         Returns:
             Dict with customer data or error
@@ -201,10 +201,16 @@ class Admin:
         Returns:
             Dict with created customer data
         """
+        import uuid
+        
+        # Generate a unique customerid (UUID without dashes, first 20 chars)
+        # This is for admin-created customers (FB customers will have FB User ID)
+        customerid = str(uuid.uuid4()).replace('-', '')[:20]
+        
         query = """
             INSERT INTO customer 
-            (fullname, email, phonenumber, dateofbirth, notes)
-            VALUES (%s, %s, %s, %s, %s)
+            (customerid, fullname, email, phonenumber, dateofbirth, notes)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING customerid, fullname, email, phonenumber, dateofbirth,
                       createdat, isdisabled, notes
         """
@@ -212,7 +218,7 @@ class Admin:
         try:
             with self.conn.cursor() as cur:
                 cur.execute(query, (
-                    fullname, email, phonenumber, dateofbirth, notes
+                    customerid, fullname, email, phonenumber, dateofbirth, notes
                 ))
                 result = cur.fetchone()
                 self.conn.commit()
@@ -243,7 +249,7 @@ class Admin:
     
     def update_customer(
         self,
-        customerid: int,
+        customerid: str,
         fullname: str = None,
         email: str = None,
         phonenumber: str = None,
@@ -255,7 +261,7 @@ class Admin:
         Update an existing customer
         
         Args:
-            customerid: ID of customer to update
+            customerid: ID of customer to update (VARCHAR - FB User ID or UUID)
             fullname: Customer's full name
             email: Customer's email
             phonenumber: Phone number
@@ -334,16 +340,16 @@ class Admin:
             self._log_error(f"Error updating customer: {error_msg}")
             return {"success": False, "error": error_msg}
     
-    def delete_customer(self, customerid: int) -> Dict[str, Any]:
+    def delete_customer(self, customerid: str) -> Dict[str, Any]:
         """
         Soft delete a customer (set isdisabled = true)
-        Only allowed if customer has NO active appointments (pending/confirmed)
+        Only allowed if customer has NO appointments at all
         
         Args:
-            customerid: ID of customer to delete
+            customerid: ID of customer to delete (VARCHAR - FB User ID or UUID)
             
         Returns:
-            Dict with success status or error if has active appointments
+            Dict with success status or error if has any appointments
         """
         try:
             with self.conn.cursor() as cur:
@@ -356,27 +362,25 @@ class Admin:
                 if not customer:
                     return {"success": False, "error": "Customer not found"}
                 
-                # Check for active appointments (pending or confirmed, not past)
+                # Check for ANY appointments (regardless of status)
                 cur.execute("""
-                    SELECT COUNT(*) as active_count
+                    SELECT COUNT(*) as appointment_count
                     FROM appointment 
-                    WHERE customerid = %s 
-                    AND status IN ('pending', 'confirmed')
-                    AND date >= CURRENT_DATE
+                    WHERE customerid = %s
                 """, (customerid,))
                 
-                active_count = cur.fetchone()[0]
+                appointment_count = cur.fetchone()[0]
                 
-                if active_count > 0:
+                if appointment_count > 0:
                     self._log_info(
-                        f"Cannot delete customer {customerid}: has {active_count} active appointments"
+                        f"Cannot delete customer {customerid}: has {appointment_count} appointment(s)"
                     )
                     return {
                         "success": False,
-                        "error": "Không thể xóa khách hàng có lịch hẹn đang hoạt động",
-                        "active_appointments": active_count,
-                        "message": f"Khách hàng này có {active_count} lịch hẹn đang hoạt động. "
-                                   f"Vui lòng hủy hoặc hoàn thành các lịch hẹn trước khi xóa."
+                        "error": "Không thể xóa khách hàng có lịch hẹn",
+                        "appointment_count": appointment_count,
+                        "message": f"Khách hàng này có {appointment_count} lịch hẹn trong hệ thống. "
+                                   f"Không thể xóa để giữ lại lịch sử tư vấn."
                     }
                 
                 # Proceed with soft delete
@@ -946,7 +950,7 @@ class Admin:
     def create_appointment(
         self,
         consultantid: int,
-        customerid: int,
+        customerid: str,
         date: str,
         time: str,
         duration: int = 60,
@@ -959,7 +963,7 @@ class Admin:
         
         Args:
             consultantid: ID of consultant
-            customerid: ID of customer
+            customerid: ID of customer (VARCHAR - FB User ID or UUID)
             date: Appointment date (YYYY-MM-DD)
             time: Appointment time (HH:MM:SS)
             duration: Duration in minutes
@@ -1022,7 +1026,7 @@ class Admin:
         self,
         appointmentid: int,
         consultantid: int = None,
-        customerid: int = None,
+        customerid: str = None,
         date: str = None,
         time: str = None,
         duration: int = None,
@@ -1035,6 +1039,7 @@ class Admin:
         
         Args:
             appointmentid: ID of appointment to update
+            customerid: Customer ID (VARCHAR - FB User ID or UUID)
             (other params): Fields to update
             
         Returns:

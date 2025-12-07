@@ -31,11 +31,11 @@ export default function AppointmentsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [availableSlots, setAvailableSlots] = useState<Array<{starttime: string; endtime: string}>>([]);
+  const [availableSlots, setAvailableSlots] = useState<any[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [formData, setFormData] = useState({
     consultantid: 0,
-    customerid: 0,
+    customerid: '',
     date: '',
     time: '',
     duration: 60,
@@ -116,10 +116,11 @@ export default function AppointmentsPage() {
     console.log('Fetching slots for consultant:', consultantId, 'date:', date);
     setLoadingSlots(true);
     try {
-      const response = await getScheduleByConsultant(consultantId, {
-        date_from: date,
-        date_to: date
-      });
+      const response = await getScheduleByConsultant(
+        consultantId,
+        date,
+        date
+      );
       
       console.log('Schedule response:', response);
       
@@ -127,6 +128,7 @@ export default function AppointmentsPage() {
       const slots = (response.schedules || [])
         .filter((slot: any) => slot.date === date && slot.isavailable && !slot.has_appointment)
         .map((slot: any) => ({
+          scheduleid: slot.scheduleid,
           starttime: slot.starttime,
           endtime: slot.endtime
         }));
@@ -150,7 +152,7 @@ export default function AppointmentsPage() {
     setAvailableSlots([]);
     setFormData({
       consultantid: 0,
-      customerid: 0,
+      customerid: '',
       date: getLocalDateString(),
       time: '',
       duration: 60,
@@ -158,6 +160,7 @@ export default function AppointmentsPage() {
       status: 'pending',
       description: ''
     });
+    setAvailableSlots([]);
     setIsModalOpen(true);
   };
 
@@ -173,6 +176,7 @@ export default function AppointmentsPage() {
       status: appointment.status,
       description: appointment.description || ''
     });
+    setAvailableSlots([]);
     setIsModalOpen(true);
     // Fetch available slots for editing too
     fetchAvailableSlots(appointment.consultantid, appointment.date);
@@ -206,6 +210,42 @@ export default function AppointmentsPage() {
       alert('Failed to delete appointment');
     }
   };
+
+  // Load available slots when consultant and date are selected
+  useEffect(() => {
+    const loadAvailableSlots = async () => {
+      if (!formData.consultantid || !formData.date) {
+        setAvailableSlots([]);
+        return;
+      }
+
+      try {
+        setLoadingSlots(true);
+        const response = await getScheduleByConsultant(
+          formData.consultantid,
+          formData.date,
+          formData.date
+        );
+
+        if (response.success && response.schedules) {
+          // Filter only available slots (no appointment and isavailable=true)
+          const availableOnly = response.schedules.filter(
+            (slot: any) => slot.isavailable && !slot.has_appointment
+          );
+          setAvailableSlots(availableOnly);
+        } else {
+          setAvailableSlots([]);
+        }
+      } catch (error) {
+        console.error('Error loading available slots:', error);
+        setAvailableSlots([]);
+      } finally {
+        setLoadingSlots(false);
+      }
+    };
+
+    loadAvailableSlots();
+  }, [formData.consultantid, formData.date]);
 
   return (
     <div className="min-h-screen">
@@ -334,10 +374,10 @@ export default function AppointmentsPage() {
               <select
                 required
                 value={formData.customerid}
-                onChange={(e) => setFormData({ ...formData, customerid: parseInt(e.target.value) })}
+                onChange={(e) => setFormData({ ...formData, customerid: e.target.value })}
                 className="input"
               >
-                <option value={0}>Chọn Khách Hàng</option>
+                <option value="">Chọn Khách Hàng</option>
                 {customers.map(customer => (
                   <option key={customer.customerid} value={customer.customerid}>
                     {customer.fullname}
@@ -384,33 +424,38 @@ export default function AppointmentsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Giờ *
               </label>
-              <select
-                required
-                value={formData.time}
-                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                className="input"
-                disabled={loadingSlots || !formData.consultantid || !formData.date}
-              >
-                <option value="">
-                  {loadingSlots 
-                    ? 'Đang tải slot...' 
-                    : !formData.consultantid || !formData.date
-                    ? 'Chọn tư vấn viên và ngày trước'
-                    : availableSlots.length === 0
-                    ? 'Không có slot khả dụng'
-                    : 'Chọn giờ'
-                  }
-                </option>
-                {availableSlots.map((slot, index) => {
-                  const startTime = slot.starttime.substring(0, 5); // HH:MM
-                  const endTime = slot.endtime.substring(0, 5); // HH:MM
-                  return (
-                    <option key={index} value={slot.starttime}>
-                      {startTime} - {endTime}
-                    </option>
-                  );
-                })}
-              </select>
+              {loadingSlots ? (
+                <div className="input flex items-center justify-center">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent"></div>
+                  <span className="ml-2 text-sm">Đang tải slot...</span>
+                </div>
+              ) : availableSlots.length > 0 ? (
+                <select
+                  required
+                  value={formData.time}
+                  onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                  className="input"
+                >
+                  <option value="">Chọn Giờ</option>
+                  {availableSlots.map((slot) => {
+                    const startTime = slot.starttime.substring(0, 5); // HH:MM
+                    const endTime = slot.endtime.substring(0, 5); // HH:MM
+                    return (
+                      <option key={slot.scheduleid} value={slot.starttime}>
+                        {startTime} - {endTime}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : formData.consultantid && formData.date ? (
+                <div className="input text-sm text-gray-500">
+                  Không có slot khả dụng
+                </div>
+              ) : (
+                <div className="input text-sm text-gray-500">
+                  Chọn tư vấn viên và ngày trước
+                </div>
+              )}
             </div>
           </div>
 

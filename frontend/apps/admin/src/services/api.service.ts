@@ -174,7 +174,7 @@ export async function createCustomer(data: {
 /**
  * Update an existing customer
  */
-export async function updateCustomer(customerid: number, data: {
+export async function updateCustomer(customerid: string, data: {
   fullname?: string;
   email?: string;
   phonenumber?: string;
@@ -194,7 +194,7 @@ export async function updateCustomer(customerid: number, data: {
 /**
  * Delete a customer (soft delete)
  */
-export async function deleteCustomer(customerid: number): Promise<any> {
+export async function deleteCustomer(customerid: string): Promise<any> {
   const response = await apiService.post('/admin/execute-sql', {
     action: 'delete_customer',
     customerid
@@ -313,7 +313,7 @@ export async function deleteConsultant(consultantid: number): Promise<any> {
  */
 export async function createAppointment(data: {
   consultantid: number;
-  customerid: number;
+  customerid: string;
   date: string;
   time: string;
   duration?: number;
@@ -338,7 +338,7 @@ export async function createAppointment(data: {
  */
 export async function updateAppointment(appointmentid: number, data: {
   consultantid?: number;
-  customerid?: number;
+  customerid?: string;
   date?: string;
   time?: string;
   duration?: number;
@@ -376,17 +376,16 @@ export async function deleteAppointment(appointmentid: number): Promise<any> {
 }
 
 // ==================== CONSULTANT SCHEDULE ====================
-/**
- * Get schedule by consultant ID
- */
 export async function getScheduleByConsultant(
-  consultant_id: number,
-  options?: { date_from?: string; date_to?: string }
+  consultantId: number,
+  dateFrom?: string,
+  dateTo?: string
 ): Promise<any> {
   const response = await apiService.post('/admin/execute-sql', {
     action: 'get_schedule_by_consultant',
-    consultant_id,
-    ...options
+    consultant_id: consultantId,
+    date_from: dateFrom,
+    date_to: dateTo
   });
   
   if (!response.success) {
@@ -645,5 +644,10 @@ export async function resetConsultantPassword(email: string): Promise<any> {
 export async function deleteConsultantAccount(email: string): Promise<any> {
   return callSyncApi('delete_user', { email });
 }
+
+/**
+ * Get available schedules for a specific consultant
+ */
+
 
 export default apiService;
