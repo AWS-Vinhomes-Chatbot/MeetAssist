@@ -152,15 +152,16 @@ def process_chat_message(psid: str, user_question: str, original_event: dict):
     2. Cho phép user hỏi DB để lấy thông tin trong collecting state
     3. Query slot chỉ khi đã có đủ consultant + date + time
     """
-    # Check if this is a new user
-    
-    
-    # Check authentication
+    # Check authentication and detect new users
     session = session_service.get_session(psid)
     is_authenticated = session.get("is_authenticated", False) if session else False
+    is_new_user = (session is None)
     
-    # Handle GET_STARTED - show welcome message for all users
-    if user_question == "GET_STARTED":
+    # Auto-send welcome message with quick actions for brand new users
+    if is_new_user:
+        logger.info(f"🆕 New user detected: {psid}, auto-sending welcome message with buttons")
+        
+        # Send welcome text first
         welcome_msg = (
             "Xin chào! 👋\n\n"
             "Mình là MeetAssist, trợ lý đặt lịch hẹn tư vấn hướng nghiệp.\n\n"
@@ -168,18 +169,16 @@ def process_chat_message(psid: str, user_question: str, original_event: dict):
             "• 📅 Đặt lịch hẹn với tư vấn viên\n"
             "• 🔄 Đổi lịch hẹn đã đặt\n"
             "• ❌ Hủy lịch hẹn\n"
-            "• ❓ Hỏi về tư vấn viên, lịch trống"
+            "• ❓ Hỏi về tư vấn viên, lịch trống\n\n"
+            "Vui lòng điền email để mình xác thực bạn nhé! 📧"
         )
         mess.send_text_message(psid, welcome_msg)
         
-        if not is_authenticated:
-            # Unauthenticated user - ask for message to start auth
-            mess.send_text_message(psid, "\n💬 Hãy nhắn tin bất kì để bắt đầu sử dụng dịch vụ!")
-        else:
-            # Authenticated user - ready to use
-            mess.send_text_message(psid, "\n💬 Bạn có thể bắt đầu chat với mình ngay!")
+        # Create initial session for new user
+        session_service.put_new_session(psid)
+        # Refresh session after creation
+
         return
-    
     # Handle authentication flow for unauthenticated users
     if not is_authenticated:
         logger.info(f"User {psid} not authenticated, delegating to auth handler")
@@ -292,6 +291,8 @@ def _start_booking_flow(psid: str, user_question: str, booking_intent: dict) -> 
                 current_info={"booking_action": "create"},
                 context=context
             )
+            extracted.pop("is_query", None)
+            extracted.pop("user_intent_summary", None)
             
             if extracted:
                 session_service.update_appointment_info(psid, extracted)
@@ -423,12 +424,14 @@ def _query_and_show_available_slots(psid: str, current_info: dict) -> str:
             # No criteria - get any available slots
             query = """Tìm các khung giờ tư vấn còn trống.
             Yêu cầu: consultantid, fullname, specialties, date, starttime, endtime, isavailable.
+            QUAN TRỌNG: Chỉ lấy lịch trong TƯƠNG LAI (date >= CURRENT_DATE, nếu date = hôm nay thì time > CURRENT_TIME).
             Chỉ lấy slot còn trống (isavailable = true). Sắp xếp theo ngày và giờ. """
         else:
             # Build query with available conditions using OR logic for flexible matching
             criteria_text = " hoặc ".join(conditions)
             query = f"""Tìm các khung giờ tư vấn còn trống thỏa mãn một trong các điều kiện sau: {criteria_text}.
             Yêu cầu: consultantid, fullname, specialties, date, starttime, endtime, isavailable.
+            QUAN TRỌNG: Chỉ lấy lịch trong TƯƠNG LAI (date >= CURRENT_DATE, nếu date = hôm nay thì time > CURRENT_TIME).
             Chỉ lấy slot còn trống (isavailable = true). 
             Ưu tiên: khớp nhiều điều kiện hơn xếp trước. Sắp xếp theo ngày và giờ."""
         
@@ -445,6 +448,14 @@ def _query_and_show_available_slots(psid: str, current_info: dict) -> str:
         )
         
         result = json.loads(response["Payload"].read().decode())
+        
+        # Check for throttling error
+        if result.get("statusCode") == 503:
+            body = result.get("body", "{}")
+            if isinstance(body, str):
+                body = json.loads(body)
+            throttle_msg = body.get("response", "⏳ Hệ thống đang bận, vui lòng chờ 1 phút rồi thử lại.")
+            return throttle_msg
         
         if result.get("statusCode") == 200:
             body = result.get("body", "{}")
@@ -499,7 +510,7 @@ def _query_and_show_available_slots(psid: str, current_info: dict) -> str:
                     message += f" - {slot_end}"
                 message += "\n"
             
-            message += "\n👉 **Vui lòng chọn số thứ tự** (1, 2, 3...)"
+            message += "\n👉 **Vui lòng chọn số thứ tự** (1, 2, 3...) để chọn lại."
             
             return message
         else:
@@ -518,7 +529,7 @@ def _show_user_appointments(psid: str, action: str) -> str:
     try:
         payload = {
             "psid": psid,
-            "question": f"""Lấy lịch hẹn đang pending hoặc confirmed của khách hàng có customerid là '{psid}'.
+            "question": f"""Lấy lịch hẹn đang pending của khách hàng có customerid là '{psid}'.
             Yêu cầu: appointmentid, customerid, fullname as customer_name, phonenumber as phone_number, 
             consultantid, tên tư vấn viên, ngày hẹn, giờ bắt đầu, status.
             Sắp xếp theo ngày giảm dần. Giới hạn 5 kết quả.""",
@@ -532,6 +543,13 @@ def _show_user_appointments(psid: str, action: str) -> str:
         )
         
         result = json.loads(response["Payload"].read().decode())
+        
+        # Check for throttling error
+        if result.get("statusCode") == 503:
+            body = result.get("body", "{}")
+            if isinstance(body, str):
+                body = json.loads(body)
+            return body.get("response", "⏳ Hệ thống đang bận, vui lòng chờ 1 phút rồi thử lại.")
         
         if result.get("statusCode") == 200:
             body = result.get("body", "{}")
@@ -801,6 +819,7 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
             extracted.pop("is_query", None)
             extracted.pop("user_intent_summary", None)
             
+            # Only update if there are useful fields remaining
             if extracted:
                 session_service.update_appointment_info(psid, extracted)
                 current_info = session_service.get_appointment_info(psid)
@@ -844,6 +863,7 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
             extracted.pop("is_query", None)
             extracted.pop("user_intent_summary", None)
             
+            # Only update if there are useful fields remaining
             if extracted:
                 session_service.update_appointment_info(psid, extracted)
                 current_info = session_service.get_appointment_info(psid)
@@ -897,6 +917,7 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
             extracted.pop("is_query", None)
             extracted.pop("user_intent_summary", None)
             
+            # Only update if there are useful fields to change
             if extracted:
                 session_service.update_appointment_info(psid, extracted)
                 return _generate_confirmation_message(session_service.get_appointment_info(psid))
@@ -945,6 +966,13 @@ def _handle_query_in_booking(psid: str, user_question: str) -> str:
         )
         
         result = json.loads(response["Payload"].read().decode())
+        
+        # Check for throttling error
+        if result.get("statusCode") == 503:
+            body = result.get("body", "{}")
+            if isinstance(body, str):
+                body = json.loads(body)
+            return body.get("response", "⏳ Hệ thống đang bận, vui lòng chờ 1 phút rồi thử lại.")
         
         if result.get("statusCode") == 200:
             body = result.get("body", "{}")
@@ -1093,6 +1121,13 @@ def _execute_booking(psid: str, appointment_info: dict) -> str:
         result = json.loads(response["Payload"].read().decode())
         logger.info(f"Mutation response: {result}")
         
+        # Check for throttling error
+        if result.get("statusCode") == 503:
+            body = result.get("body", "{}")
+            if isinstance(body, str):
+                body = json.loads(body)
+            return body.get("response", "⏳ Hệ thống đang bận, vui lòng chờ 1 phút rồi thử lại.")
+        
         if result.get("statusCode") == 200:
             session_service.reset_appointment_info(psid)
             session_service.set_booking_state(psid, "idle")
@@ -1162,6 +1197,14 @@ def _handle_text2sql(psid: str, user_question: str) -> tuple:
         )
         
         result = json.loads(response["Payload"].read().decode())
+        
+        # Check for throttling error specifically
+        if result.get("statusCode") == 503:
+            error_body = result.get("body", "{}")
+            if isinstance(error_body, str):
+                error_body = json.loads(error_body)
+            throttle_msg = error_body.get("response", "⏳ Hệ thống đang bận, vui lòng chờ 1 phút rồi thử lại.")
+            return throttle_msg, {"error": True, "throttling": True}
         
         if result.get("statusCode") != 200:
             error_body = result.get("body", "{}")
