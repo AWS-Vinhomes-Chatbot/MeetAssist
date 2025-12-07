@@ -143,6 +143,265 @@ class Admin:
             "offset": offset
         }
 
+    # ==================== CUSTOMER CRUD ====================
+    
+    def get_customer_by_id(self, customerid: int) -> Dict[str, Any]:
+        """
+        Get a single customer by ID
+        
+        Args:
+            customerid: Customer ID
+            
+        Returns:
+            Dict with customer data or error
+        """
+        query = """
+            SELECT customerid, fullname, email, phonenumber, dateofbirth, 
+                   createdat, isdisabled, notes
+            FROM customer
+            WHERE customerid = %s
+        """
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(query, [customerid])
+                row = cur.fetchone()
+                
+                if not row:
+                    return {"success": False, "error": "Customer not found"}
+                
+                columns = [desc[0] for desc in cur.description]
+                customer = dict(zip(columns, row))
+                
+            self._log_info(f"Retrieved customer: {customerid}")
+            return {"success": True, "data": customer}
+            
+        except Exception as e:
+            self._log_error(f"Error getting customer {customerid}: {str(e)}")
+            return {"success": False, "error": str(e)}
+    
+    def create_customer(
+        self,
+        fullname: str,
+        email: str,
+        phonenumber: str = None,
+        dateofbirth: str = None,
+        notes: str = None
+    ) -> Dict[str, Any]:
+        """
+        Create a new customer
+        
+        Args:
+            fullname: Customer's full name
+            email: Customer's email (unique)
+            phonenumber: Phone number
+            dateofbirth: Date of birth (YYYY-MM-DD)
+            notes: Additional notes
+            
+        Returns:
+            Dict with created customer data
+        """
+        query = """
+            INSERT INTO customer 
+            (fullname, email, phonenumber, dateofbirth, notes)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING customerid, fullname, email, phonenumber, dateofbirth,
+                      createdat, isdisabled, notes
+        """
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(query, (
+                    fullname, email, phonenumber, dateofbirth, notes
+                ))
+                result = cur.fetchone()
+                self.conn.commit()
+            
+            customer = {
+                "customerid": result[0],
+                "fullname": result[1],
+                "email": result[2],
+                "phonenumber": result[3],
+                "dateofbirth": result[4],
+                "createdat": result[5],
+                "isdisabled": result[6],
+                "notes": result[7]
+            }
+            
+            self._log_info(f"Created customer: {customer['customerid']}")
+            return {"success": True, "data": customer}
+            
+        except Exception as e:
+            self.conn.rollback()
+            error_msg = str(e)
+            # Check for duplicate email error
+            if "customer_email_key" in error_msg or "duplicate key" in error_msg.lower():
+                self._log_error(f"Duplicate email: {email}")
+                return {"success": False, "error": f"Email '{email}' đã tồn tại trong hệ thống"}
+            self._log_error(f"Error creating customer: {error_msg}")
+            return {"success": False, "error": error_msg}
+    
+    def update_customer(
+        self,
+        customerid: int,
+        fullname: str = None,
+        email: str = None,
+        phonenumber: str = None,
+        dateofbirth: str = None,
+        notes: str = None,
+        isdisabled: bool = None
+    ) -> Dict[str, Any]:
+        """
+        Update an existing customer
+        
+        Args:
+            customerid: ID of customer to update
+            fullname: Customer's full name
+            email: Customer's email
+            phonenumber: Phone number
+            dateofbirth: Date of birth
+            notes: Additional notes
+            isdisabled: Disabled status
+            
+        Returns:
+            Dict with updated customer data
+        """
+        # Build dynamic UPDATE query
+        update_fields = []
+        params = []
+        
+        if fullname is not None:
+            update_fields.append("fullname = %s")
+            params.append(fullname)
+        if email is not None:
+            update_fields.append("email = %s")
+            params.append(email)
+        if phonenumber is not None:
+            update_fields.append("phonenumber = %s")
+            params.append(phonenumber)
+        if dateofbirth is not None:
+            update_fields.append("dateofbirth = %s")
+            params.append(dateofbirth)
+        if notes is not None:
+            update_fields.append("notes = %s")
+            params.append(notes)
+        if isdisabled is not None:
+            update_fields.append("isdisabled = %s")
+            params.append(isdisabled)
+        
+        if not update_fields:
+            return {"success": False, "error": "No fields to update"}
+        
+        params.append(customerid)
+        query = f"""
+            UPDATE customer 
+            SET {', '.join(update_fields)}
+            WHERE customerid = %s
+            RETURNING customerid, fullname, email, phonenumber, dateofbirth,
+                      createdat, isdisabled, notes
+        """
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(query, params)
+                result = cur.fetchone()
+                self.conn.commit()
+                
+                if not result:
+                    return {"success": False, "error": "Customer not found"}
+            
+            customer = {
+                "customerid": result[0],
+                "fullname": result[1],
+                "email": result[2],
+                "phonenumber": result[3],
+                "dateofbirth": result[4],
+                "createdat": result[5],
+                "isdisabled": result[6],
+                "notes": result[7]
+            }
+            
+            self._log_info(f"Updated customer: {customerid}")
+            return {"success": True, "data": customer}
+            
+        except Exception as e:
+            self.conn.rollback()
+            error_msg = str(e)
+            # Check for duplicate email error
+            if "customer_email_key" in error_msg or "duplicate key" in error_msg.lower():
+                self._log_error(f"Duplicate email: {email}")
+                return {"success": False, "error": f"Email '{email}' đã tồn tại trong hệ thống"}
+            self._log_error(f"Error updating customer: {error_msg}")
+            return {"success": False, "error": error_msg}
+    
+    def delete_customer(self, customerid: int) -> Dict[str, Any]:
+        """
+        Soft delete a customer (set isdisabled = true)
+        Only allowed if customer has NO active appointments (pending/confirmed)
+        
+        Args:
+            customerid: ID of customer to delete
+            
+        Returns:
+            Dict with success status or error if has active appointments
+        """
+        try:
+            with self.conn.cursor() as cur:
+                # Check if customer exists
+                cur.execute(
+                    "SELECT customerid, fullname FROM customer WHERE customerid = %s",
+                    (customerid,)
+                )
+                customer = cur.fetchone()
+                if not customer:
+                    return {"success": False, "error": "Customer not found"}
+                
+                # Check for active appointments (pending or confirmed, not past)
+                cur.execute("""
+                    SELECT COUNT(*) as active_count
+                    FROM appointment 
+                    WHERE customerid = %s 
+                    AND status IN ('pending', 'confirmed')
+                    AND date >= CURRENT_DATE
+                """, (customerid,))
+                
+                active_count = cur.fetchone()[0]
+                
+                if active_count > 0:
+                    self._log_info(
+                        f"Cannot delete customer {customerid}: has {active_count} active appointments"
+                    )
+                    return {
+                        "success": False,
+                        "error": "Không thể xóa khách hàng có lịch hẹn đang hoạt động",
+                        "active_appointments": active_count,
+                        "message": f"Khách hàng này có {active_count} lịch hẹn đang hoạt động. "
+                                   f"Vui lòng hủy hoặc hoàn thành các lịch hẹn trước khi xóa."
+                    }
+                
+                # Proceed with soft delete
+                cur.execute("""
+                    UPDATE customer 
+                    SET isdisabled = true
+                    WHERE customerid = %s
+                    RETURNING customerid
+                """, (customerid,))
+                
+                deleted = cur.fetchone()
+                if not deleted:
+                    self.conn.rollback()
+                    return {"success": False, "error": "Failed to delete customer"}
+                
+                self.conn.commit()
+                
+            self._log_info(f"Successfully deleted customer: {customerid}")
+            return {"success": True, "message": "Xóa khách hàng thành công"}
+            
+        except Exception as e:
+            self.conn.rollback()
+            self._log_error(f"Error deleting customer {customerid}: {str(e)}")
+            return {"success": False, "error": str(e)}
+
     # ==================== CONSULTANTS ====================
     
     def get_consultants(
@@ -1638,15 +1897,39 @@ class Admin:
                 """, (updated[1], updated[2], updated[3]))
                 self._log_info(f"Auto-disabled schedule slot for confirmed appointment {appointment_id}")
                 
-                self.conn.commit()
+                # Fetch full appointment details for email notification (BEFORE commit)
+                detail_query = """
+                    SELECT 
+                        a.appointmentid, a.date, a.time, a.duration, a.meetingurl, a.description,
+                        c.fullname as customer_name, c.email as customer_email,
+                        cs.fullname as consultant_name
+                    FROM appointment a
+                    JOIN customer c ON a.customerid = c.customerid
+                    JOIN consultant cs ON a.consultantid = cs.consultantid
+                    WHERE a.appointmentid = %s
+                """
+                cur.execute(detail_query, [appointment_id])
+                detail = cur.fetchone()
                 
+                self.conn.commit()
+            
+            # Build response with email details for frontend
             self._log_info(f"Consultant {consultant_id} confirmed appointment {appointment_id}")
             return {
                 "success": True,
                 "appointment_id": updated[0],
                 "status": updated[4],
                 "updated_at": str(updated[5]),
-                "message": "Appointment confirmed successfully"
+                "message": "Appointment confirmed successfully",
+                # Email details for frontend to send notification
+                "customer_email": detail[7] if detail else None,
+                "customer_name": detail[6] if detail else None,
+                "consultant_name": detail[8] if detail else None,
+                "date": str(detail[1]) if detail else None,
+                "time": str(detail[2]) if detail else None,
+                "duration": detail[3] if detail else None,
+                "meeting_url": detail[4] if detail else None,
+                "description": detail[5] if detail else None,
             }
             
         except Exception as e:
@@ -1721,15 +2004,39 @@ class Admin:
                 """, (updated[1], updated[2], updated[3]))
                 self._log_info(f"Auto-enabled schedule slot for cancelled appointment {appointment_id}")
                 
+                # Fetch full appointment details for email notification (BEFORE commit)
+                detail_query = """
+                    SELECT 
+                        a.appointmentid, a.date, a.time, a.duration, a.description,
+                        c.fullname as customer_name, c.email as customer_email,
+                        cs.fullname as consultant_name
+                    FROM appointment a
+                    JOIN customer c ON a.customerid = c.customerid
+                    JOIN consultant cs ON a.consultantid = cs.consultantid
+                    WHERE a.appointmentid = %s
+                """
+                cur.execute(detail_query, [appointment_id])
+                detail = cur.fetchone()
+                
                 self.conn.commit()
                 
+            # Build response with email details for frontend
             self._log_info(f"Consultant {consultant_id} cancelled appointment {appointment_id}")
             return {
                 "success": True,
                 "appointment_id": updated[0],
                 "status": updated[4],
                 "updated_at": str(updated[5]),
-                "message": "Appointment cancelled successfully"
+                "message": "Appointment cancelled successfully",
+                # Email details for frontend to send notification
+                "customer_email": detail[6] if detail else None,
+                "customer_name": detail[5] if detail else None,
+                "consultant_name": detail[7] if detail else None,
+                "date": str(detail[1]) if detail else None,
+                "time": str(detail[2]) if detail else None,
+                "duration": detail[3] if detail else None,
+                "description": detail[4] if detail else None,
+                "cancellation_reason": reason,
             }
             
         except Exception as e:

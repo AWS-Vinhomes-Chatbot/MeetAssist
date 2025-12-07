@@ -112,6 +112,41 @@ def route_action(action: str, body: Dict, service: Admin) -> Dict:
             )
             return success_response(data)
         
+        elif action == 'get_customer_by_id':
+            customerid = body.get('customerid')
+            if not customerid:
+                return error_response("Missing 'customerid' in request body", 400)
+            data = service.get_customer_by_id(customerid=customerid)
+            return success_response(data)
+        
+        elif action == 'create_customer':
+            data = service.create_customer(
+                fullname=body.get('fullname'),
+                email=body.get('email'),
+                phonenumber=body.get('phonenumber'),
+                dateofbirth=body.get('dateofbirth'),
+                notes=body.get('notes')
+            )
+            return success_response(data)
+        
+        elif action == 'update_customer':
+            data = service.update_customer(
+                customerid=body.get('customerid'),
+                fullname=body.get('fullname'),
+                email=body.get('email'),
+                phonenumber=body.get('phonenumber'),
+                dateofbirth=body.get('dateofbirth'),
+                notes=body.get('notes'),
+                isdisabled=body.get('isdisabled')
+            )
+            return success_response(data)
+        
+        elif action == 'delete_customer':
+            data = service.delete_customer(
+                customerid=body.get('customerid')
+            )
+            return success_response(data)
+        
         elif action == 'get_consultants':
             data = service.get_consultants(
                 limit=body.get('limit', 100),
