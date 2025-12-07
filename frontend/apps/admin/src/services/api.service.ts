@@ -137,6 +137,73 @@ export async function getCustomers(options?: { limit?: number; offset?: number; 
   return response;
 }
 
+/**
+ * Get a single customer by ID
+ */
+export async function getCustomerById(customerid: number): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'get_customer_by_id',
+    customerid
+  });
+  
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to get customer');
+  }
+  
+  return response;
+}
+
+/**
+ * Create a new customer
+ */
+export async function createCustomer(data: {
+  fullname: string;
+  email: string;
+  phonenumber?: string;
+  dateofbirth?: string;
+  notes?: string;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'create_customer',
+    ...data
+  });
+  
+  return response; // Return full response (includes success and error fields)
+}
+
+/**
+ * Update an existing customer
+ */
+export async function updateCustomer(customerid: number, data: {
+  fullname?: string;
+  email?: string;
+  phonenumber?: string;
+  dateofbirth?: string;
+  notes?: string;
+  isdisabled?: boolean;
+}): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'update_customer',
+    customerid,
+    ...data
+  });
+  
+  return response; // Return full response
+}
+
+/**
+ * Delete a customer (soft delete)
+ */
+export async function deleteCustomer(customerid: number): Promise<any> {
+  const response = await apiService.post('/admin/execute-sql', {
+    action: 'delete_customer',
+    customerid
+  });
+  
+  return response; // Return full response (may include active_appointments, message)
+}
+
+
 // ==================== CONSULTANTS ====================
 
 /**

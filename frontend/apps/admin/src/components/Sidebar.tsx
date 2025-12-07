@@ -5,6 +5,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import {
   LayoutDashboard,
   Users,
+  UserCircle,
   Calendar,
   Sun,
   Moon,
@@ -29,6 +30,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { path: '/', icon: <LayoutDashboard size={20} />, label: 'Tổng Quan' },
   { path: '/consultants', icon: <Users size={20} />, label: 'Tư Vấn Viên' },
+  { path: '/customers', icon: <UserCircle size={20} />, label: 'Khách Hàng' },
   { path: '/appointments', icon: <Calendar size={20} />, label: 'Lịch Hẹn' },
 ];
 
