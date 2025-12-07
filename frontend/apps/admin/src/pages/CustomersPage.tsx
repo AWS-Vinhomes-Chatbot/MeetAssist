@@ -21,7 +21,6 @@ export default function CustomersPage() {
     fullname: '',
     email: '',
     phonenumber: '',
-    dateofbirth: '',
     notes: ''
   });
 
@@ -71,7 +70,6 @@ export default function CustomersPage() {
       fullname: '',
       email: '',
       phonenumber: '',
-      dateofbirth: '',
       notes: ''
     });
     setIsModalOpen(true);
@@ -83,7 +81,6 @@ export default function CustomersPage() {
       fullname: customer.fullname || '',
       email: customer.email || '',
       phonenumber: customer.phonenumber || '',
-      dateofbirth: customer.dateofbirth || '',
       notes: customer.notes || ''
     });
     setIsModalOpen(true);
@@ -136,9 +133,8 @@ export default function CustomersPage() {
         // Update existing customer
         const response = await updateCustomer(editingCustomer.customerid, {
           ...formData,
-          // Only send non-empty phone and dateofbirth
+          // Only send non-empty phone
           phonenumber: formData.phonenumber.trim() || undefined,
-          dateofbirth: formData.dateofbirth || undefined,
           notes: formData.notes.trim() || undefined
         });
 
@@ -154,7 +150,6 @@ export default function CustomersPage() {
         const response = await createCustomer({
           ...formData,
           phonenumber: formData.phonenumber.trim() || undefined,
-          dateofbirth: formData.dateofbirth || undefined,
           notes: formData.notes.trim() || undefined
         });
 
@@ -169,16 +164,6 @@ export default function CustomersPage() {
     } catch (error) {
       console.error('Error saving customer:', error);
       alert('Có lỗi xảy ra khi lưu thông tin khách hàng');
-    }
-  };
-
-  const formatDate = (dateStr: string | undefined) => {
-    if (!dateStr) return '';
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString('vi-VN');
-    } catch {
-      return dateStr;
     }
   };
 
@@ -254,12 +239,6 @@ export default function CustomersPage() {
                     Số Điện Thoại
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Ngày Sinh
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Ngày Tạo
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Thao Tác
                   </th>
                 </tr>
@@ -267,7 +246,7 @@ export default function CustomersPage() {
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {paginatedCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
                       {searchTerm ? 'Không tìm thấy khách hàng phù hợp' : 'Chưa có khách hàng nào'}
                     </td>
                   </tr>
@@ -292,12 +271,6 @@ export default function CustomersPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
                         {customer.phonenumber || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                        {formatDate(customer.dateofbirth) || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                        {formatDate(customer.createdat)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <button
@@ -382,20 +355,6 @@ export default function CustomersPage() {
                        bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
                        focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               placeholder="0912345678"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Ngày Sinh
-            </label>
-            <input
-              type="date"
-              value={formData.dateofbirth}
-              onChange={(e) => setFormData({ ...formData, dateofbirth: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
-                       bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                       focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
 
