@@ -1,4 +1,4 @@
-# Build an AI-powered text-to-SQL chatbot using Amazon Bedrock, Amazon MemoryDB, and Amazon RDS
+# MeetAssist text-to-SQL chatbot using Amazon Bedrock, Amazon DynamoDB, and Amazon RDS
 
 To manually create a virtualenv on macOS and Linux:
 
@@ -34,186 +34,172 @@ The following are needed in order to proceed with this post:
 * [Install AWS CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting-started.html)
 * The [AWS Command Line Interface (AWS CLI)](https://aws.amazon.com/cli/).
 * The AWS Systems Manager [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html).
-* [Amazon Bedrock model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html) enabled for Anthropic Claude 3.5 Sonnet and Amazon Titan Embeddings G1 – Text in the ap-northeast-1 Region.
+* [Amazon Bedrock model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html) enabled for Anthropic Claude 3.5 Sonnet, Claude 3 Sonnet, Claude 3 Haiku and Amazon Titan Embeddings G1 – Text in the ap-northeast-1 Region.
 * Python 3.12 or higher with the pip package manager.
+* Node.js (version 18.x or higher) and npm – required for running the dashboard, installing dependencies, and building workshop assets.
+
+
+## Enabling Bedrock Models
+
+1. Search for Amazon Bedrock in AWS Console 
+2. Access Model catalog 
+3. Choose the corresponding model name (Anthropic Claude 3.5 Sonnet, Claude 3 Sonnet, Claude 3 Haiku and Amazon Titan Embeddings G1) 
+4. Select "Open in playground" and send a message to enable it
   
  
 
-At this point you can now synthesize the CloudFormation template for this code.
-
-```
-$ cdk synth
-```
-
-The dependencies for the text-to-SQL code solution, and custom resource to initialize the database, include their respective requirements.txt file that are installed as part of the CDK deployment.
+The dependencies for the MeetAssist code solution, and custom resource to initialize the database, include their respective requirements.txt file that are installed as part of the CDK deployment.
 
 # Usage
+## Configuration AWS CLI
+1. Type "aws configuration" in your terminal. Make sure you have created CLI secret access key for your account
+2. Complete the configuration form. Be careful, region must be ap-northeast-1 
+
+
+
 ## Download the dataset and upload to Amazon S3
 
-1. Navigate to the [500,000+ US Homes Data dataset](https://www.kaggle.com/datasets/ahmedshahriarsakib/usa-real-estate-dataset), and download the dataset to your local machine.
-2. Unzip the `archive.zip` file, which will expand into a file called `600k US Housing Properties.csv`.
-3. Upload this file to an Amazon Simple Storage Service (Amazon S3) bucket of your choice in the AWS account where you'll be deploying the AWS Cloud Development Kit (AWS CDK) solution. Replace `<bucket-name>` with the bucket in your account.
+1. Navigate to the [MeetAssistData](https://drive.google.com/drive/folders/1JQ9X9BbKL7q82sEifvN5Seas7Mrgh4Q7?usp=sharing), and download the data to your local machine.
+2. Unzip the file, which will expand into a file called `DATA`.
+3. Run this CLI script to create this project's Amazon Simple Storage Service (Amazon S3) bucket format. Replace <account-id> and  with your AWS account ID.
 ```
-aws s3 cp "./600K US Housing Properties.csv" s3://<bucket-name>/
+aws s3 mb s3://meetassist-data-<account-id>-ap-northeast-1 --region ap-northeast-1
 ```
+3. Create a folder named "data" in the S3 bucket and upload all CSV files into it
+
 
 ## Deploy the solution
 
 1. Clone the repository from GitHub:
 ```
-git clone https://github.com/aws-samples/sample-cdk-rds-pg-memdb-text-to-sql 
-cd sample-cdk-rds-pg-memdb-text-to-sql/
+git clone https://github.com/AWS-Vinhomes-Chatbot/MeetAssist
+cd MeetAssist
 ```
 
-2. Deploy the CDK application and specify the S3 bucket name used in the previous section as a parameter. It will take about 20-30 minutes to deploy the MemoryDB and RDS instances.
+2. Build the dashboard first. Follow the steps below: 
+
+### Navigate to frontend folder
 ```
-cdk bootstrap aws://{{account_id}}/{{region}} 
-cdk deploy --all --parameters AppStack:S3BucketName=<bucket-name>
+cd frontend
+```
+
+### Install dependencies
+Run the following command to install all necessary libraries:
+```
+npm i
+```
+
+### Build the Dashboard
+After the installation is complete, run the build command:
+```
+npm run build
+```
+Once the process completes, a dist directory will be created, containing the index.html file and the assets folder.
+
+
+### Use this command to return to the project’s root folder:
+```
+cd ..
+```
+
+3. Deploy the CDK application. It will take about 20-30 minutes to deploy all of the resources. 
+```
+cdk bootstrap aws://{{account_id}}/ap-northeast-1 
+cdk deploy --all 
 ```
 Note: if you receive an error at this step, please ensure Docker is running on the local host or laptop.
 
-3. Use the `setup_helper.py` script to access the bastion host:
-```
-python3 setup_helper.py bastion
-```
-Run the command provided by the script to use Session Manager, a capability of AWS Systems Manager, to access the bastion host. This will also set the `SECRET_NAME` environment variable for the session to configure the RDS database.
-4. On the bastion host, install required dependencies:
-```
-sudo yum install -y postgresql15 python3-pip 
-python3 -m pip install "psycopg[binary]>=3.1.12" boto3 pandas numpy
-```
-5. Copy the artifact file from the S3 bucket used in the previous section (Download the dataset and upload to Amazon S3) to the bastion host:
-```
-aws s3 cp "s3://<bucket-name>/600K US Housing Properties.csv" .
-```
-6. On the same bastion host terminal session, create the following Python code by copying and pasting the code into your terminal:
-```
-cat > ~/load.py << EOF
-import os, json, boto3, psycopg, pandas as pd, numpy as np
 
-def get_secret(secret_name: str):
-    """Retrieve database connection parameters from AWS Secrets Manager."""
-    sm_client = boto3.client("secretsmanager", region_name="us-west-2")
-    connector_params = json.loads(sm_client.get_secret_value(SecretId=secret_name)["SecretString"])
-    
-    required_fields = ["host", "username", "password", "port"]
-    missing = [f for f in required_fields if f not in connector_params]
-    if missing:
-        raise ValueError(f"Required fields not found: {', '.join(missing)}")
-    
-    return connector_params
+4. After the CDK deployment completes, you must run the DataIndexer Lambda function to populate the embeddings table with database schema information. Use the following AWS CLI command:
 
-def main():
-    csv_file = '600K US Housing Properties.csv'
-    
-    try:
-        print("Processing and importing data...")
-        connection_params = get_secret(os.environ["SECRET_NAME"])
-        conn_string = f"host={connection_params['host']} port={connection_params['port']} dbname=postgres user={connection_params['username']} password={connection_params['password']}"
-        
-        # Column names for the COPY statement - defined as a list for safety
-        columns = ['property_url', 'property_id', 'address', 'street_name', 'apartment', 'city', 'state', 'latitude', 
-                  'longitude', 'postcode', 'price', 'bedroom_number', 'bathroom_number', 'price_per_unit', 'living_space', 
-                  'land_space', 'land_space_unit', 'broker_id', 'property_type', 'property_status', 'year_build', 
-                  'total_num_units', 'listing_age', 'RunDate', 'agency_name', 'agent_name', 'agent_phone', 'is_owned_by_zillow']
-
-        
-        # Connect to database
-        with psycopg.connect(conn_string) as conn:
-            # Process and import data in chunks
-            chunksize = 1000
-            total_imported = 0
-
-            # Prepare the INSERT statement with placeholders
-            placeholders = ", ".join(["%s"] * len(columns))
-            insert_query = f"INSERT INTO us_housing_properties ({', '.join(columns)}) VALUES ({placeholders})"
-
-            for chunk in pd.read_csv(csv_file, chunksize=chunksize):
-                # Replace negative values with None
-                numeric_cols = chunk.select_dtypes(include=['float64', 'int64']).columns
-                chunk[numeric_cols] = chunk[numeric_cols].apply(lambda x: x.mask(x < 0, None))
-
-                # Replace null or empty values with None
-                chunk = chunk.replace({np.nan: None, '': None})
-                # Create a list of tuples from the DataFrame chunk
-                tuples = [tuple(x) for x in chunk.to_numpy()]
-
-                
-                # Use executemany for batch insertion
-                with conn.cursor() as cur:
-                    cur.executemany(insert_query, tuples)
-                    conn.commit()
-                
-                total_imported += len(chunk)
-                print(f"Imported {total_imported} rows...")
-            
-            print(f"Successfully imported {total_imported} rows into database.")
-
-    except Exception as error:
-        print(f"Error: {error}")
-        raise
-
-if __name__ == "__main__":
-    main()
-EOF
 ```
-8. Run the Python code to input data into the RDS instance from the spreadsheet. If you receive an error, double check that you set the correct SECRET_NAME as an environment variable in step 4.
-```
-python3 load.py
-```
-9. Once the script completes, navigate to the AWS Lambda console from your browser - https://us-west-2.console.aws.amazon.com/lambda/home?region=us-west-2#/functions
-10. aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region <region>
-    example:aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region ap-northeast-1
-11. Open the function, and navigate to the Test tab. Click test. This will populate the embeddings table with database schema information.
-12. Next, search for the function named [`AppStack-TextToSQLFunction`]()
-13. Open the function, and navigate to the Test tab. Edit the Event JSON with the following:
-```
-{
-  "query": "What are the top homes in San Francisco, CA?"
-}
+aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region example:aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region ap-northeast-1
 ```
 
-## Test the text-to-sql chatbot application
+5. After completing all the steps above, your environment is fully deployed and initialized. You can now start using both the MeetAssist chatbot and the Admin Dashboard. The instructions for each are provided in the sections below.
 
-To run the Streamlit app, perform the following steps from your local host or laptop. In this section, we will retrieve the API key and capture the API endpoint from the deployed CDK application.
 
-1. Use the `setup_helper.py` script to set up Streamlit:
-python3 setup_helper.py streamlit
 
-The output will look similar to the following:
-```bash
-Follow these steps to set up Streamlit:
+# Using the MeetAssist Chatbot
+(Add your chatbot usage instructions here.)
 
-1. Run this command to get the API key: 
-aws apigateway get-api-key --api-key <api-id> --include-value --query 'value' --output text
 
-2. In the streamlit/ directory from the root of the project, create a .streamlit/secrets.toml file with the following content: 
-api_key = "<api-key-from-step-1>" 
-api_endpoint = "https://<api-id>.execute-api.us-west-2.amazonaws.com/prod/"
+# Using the Admin Dashboard
 
-3. Install Streamlit: 
-python3 -m pip install streamlit pandas requests
+The Admin Dashboard is a comprehensive management interface that allows administrators to monitor system statistics, manage consultants, and oversee all appointments.
 
-4. Run the Streamlit app: 
-streamlit run app.py
+## Initial Setup
+
+The Admin Dashboard requires an administrator account created in Amazon Cognito. Follow these steps to access the dashboard for the first time:
+
+### 1. Create an Admin User
+
+Run the following AWS CLI command to create an admin account:
+
 ```
-2. Follow the instructions provided by the script to:
-   1. Retrieve the API key 
-   2. Create the .streamlit/secrets.toml file 
-   3. Install Streamlit 
-   4. Run the Streamlit app
+aws cognito-idp admin-create-user --user-pool-id <your-user-pool-id> --username <your-email> --user-attributes Name=email,Value=<your-email> Name=email_verified,Value=true --temporary-password "<your-temporary-password>" --region ap-northeast-1
+```
 
-3. Step 4 in the above output will run the Streamlit app using `streamlit run app.py`.
+**Note:** Both the User Pool ID and the Admin Dashboard URL can be found in the `outputs.json` file generated after CDK deployment.
 
-Try some of the following questions to see the responses from the solution:
-* What are the key factors affecting home prices in 90210?
-* What are top properties in San Francisco, CA?
-* What are the top homes in WA where avg sq ft is > $700 and sq ft is > 1000?
+### 2. First Login
 
-## Security
+1. Open the Admin Dashboard URL from the `outputs.json` file
+2. Log in with your email and temporary password
+3. Cognito will prompt you to set a new permanent password
+4. After updating your password, you will be redirected to the Admin Dashboard
 
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+## Dashboard Features
 
-## License
+### Overview Page
+- View system statistics: Total customers, consultants, appointments, and average ratings
+- Appointments breakdown by status (Pending, Confirmed, Completed, Cancelled)
+- Recent appointments list
 
-This library is licensed under the MIT-0 License. See the LICENSE file.
+### Consultants Management Page
+
+**Consultant Management:**
+- View, add, edit, and delete consultant profiles
+- Manage consultant information (name, email, phone, specialties, qualifications)
+
+**Account Management:**
+- Create/delete Cognito accounts for consultant login
+- Sync all consultant accounts with Cognito
+- Reset consultant passwords
+
+**Schedule Management:**
+- View and manage consultant availability
+- Add/edit/delete time slots (8 predefined slots from 8:00 AM to 9:30 PM)
+
+### Appointments Management Page
+- View all appointments with complete details
+- Filter by status (All, Pending, Confirmed, Completed, Cancelled)
+- Create, edit, and delete appointments
+
+
+
+# Using the Consultant Dashboard
+
+## Access
+Consultants receive login credentials via email after the admin creates their Cognito account.
+
+## Dashboard Features
+
+### My Appointments Page
+- View all appointments with customer details and status
+- Filter by status (All, Pending, Confirmed, Completed, Cancelled)
+- Confirm, complete, or cancel appointments
+- Customers receive automatic email notifications
+
+### My Schedule Page
+- View weekly schedule (Monday to Sunday)
+- Navigate between weeks
+- See slot status: Available (green), Booked (blue), Pending (yellow), Past (gray), Unavailable (red)
+- **Note**: Schedule is view-only. Contact admin to modify availability.
+
+
+
+
+
+
+
