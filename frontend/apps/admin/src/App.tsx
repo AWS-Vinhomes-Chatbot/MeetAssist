@@ -94,7 +94,7 @@ function App() {
       <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <Loader2 size={48} className="mb-4 animate-spin text-primary-600 mx-auto" />
-          <p className="text-gray-600 dark:text-gray-400">Loading Dashboard...</p>
+          <p className="text-gray-600 dark:text-gray-400">Đang Tải Bảng Điều Khiển...</p>
         </div>
       </div>
     );
@@ -123,8 +123,7 @@ function App() {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-100 dark:bg-primary-900/30 mb-4">
               <Bot size={32} className="text-primary-600" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Chatbot Admin</h1>
-            <p className="mt-2 text-gray-600 dark:text-gray-400">Manage conversation history and analytics</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Đăng nhập</h1>
           </div>
           
           <button
@@ -132,11 +131,11 @@ function App() {
             className="w-full rounded-lg bg-primary-600 px-6 py-3 font-semibold text-white transition-all hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 active:scale-[0.98] flex items-center justify-center gap-2"
           >
             <LogIn size={20} />
-            {config.demoMode ? 'Enter Demo Mode' : 'Login with Cognito'}
+            {config.demoMode ? 'Vào Chế Độ Demo' : 'Đăng Nhập'}
           </button>
           
           <p className="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
-            Secured by AWS Cognito
+            Bảo mật bởi AWS Cognito
           </p>
         </div>
       </div>
@@ -162,7 +161,7 @@ function App() {
               <div className="flex h-full items-center justify-center min-h-[50vh]">
                 <div className="text-center">
                   <Loader2 size={40} className="mb-4 animate-spin text-primary-600 mx-auto" />
-                  <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+                  <p className="text-gray-600 dark:text-gray-400">Đang tải...</p>
                 </div>
               </div>
             }

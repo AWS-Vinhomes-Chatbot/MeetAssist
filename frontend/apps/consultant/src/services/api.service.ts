@@ -103,6 +103,15 @@ class ApiService {
       error?: string;
     }>('deny_appointment', { consultant_id: consultantId, appointment_id: appointmentId, reason });
   }
+
+  // Complete appointment
+  async completeAppointment(consultantId: number, appointmentId: number) {
+    return this.request<{
+      success: boolean;
+      message: string;
+      error?: string;
+    }>('complete_appointment', { consultant_id: consultantId, appointment_id: appointmentId });
+  }
 }
 
 export const apiService = new ApiService();

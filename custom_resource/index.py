@@ -48,7 +48,7 @@ CAREER_COUNSELING_SCHEMA = """
 CREATE TABLE IF NOT EXISTS Customer (
     CustomerID VARCHAR(50) PRIMARY KEY,
     FullName VARCHAR(100) NOT NULL,
-    Email VARCHAR(100) NOT NULL UNIQUE,
+    Email VARCHAR(100) NOT NULL,
     PhoneNumber VARCHAR(20),
     DateOfBirth DATE,
     CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -56,11 +56,12 @@ CREATE TABLE IF NOT EXISTS Customer (
     Notes TEXT
 );
 
+
 -- Bảng Tư vấn viên
 CREATE TABLE IF NOT EXISTS Consultant (
     ConsultantID INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     FullName VARCHAR(100) NOT NULL,
-    Email VARCHAR(100) NOT NULL UNIQUE,
+    Email VARCHAR(100) NOT NULL,
     PhoneNumber VARCHAR(20),
     Specialties TEXT,
     Qualifications TEXT,

@@ -10,7 +10,22 @@ interface Schedule {
   starttime: string;
   endtime: string;
   isavailable: boolean;
+  has_appointment?: boolean;
+  appointment_status?: string;
 }
+
+// Helper function to check if a slot is in the past (UTC+7 timezone)
+const isPastSlot = (dateStr: string, timeStr: string): boolean => {
+  // Parse slot datetime (YYYY-MM-DD and HH:MM:SS)
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  
+  // Create date in local timezone (Vietnam UTC+7)
+  const slotDate = new Date(year, month - 1, day, hours, minutes);
+  const now = new Date();
+  
+  return slotDate < now;
+};
 
 interface Props {
   consultantId: number;
@@ -43,7 +58,7 @@ export default function SchedulePage({ consultantId }: Props) {
       setSchedules(data.schedules);
     } catch (err) {
       console.error('Failed to load schedule:', err);
-      setError('Failed to load schedule');
+      setError('Không thể tải lịch làm việc');
     } finally {
       setIsLoading(false);
     }
@@ -78,7 +93,7 @@ export default function SchedulePage({ consultantId }: Props) {
         <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
           <p className="text-red-600">{error}</p>
           <button onClick={loadSchedule} className="mt-4 text-teal-500 hover:underline">
-            Try again
+            Thử lại
           </button>
         </div>
       );
@@ -88,8 +103,8 @@ export default function SchedulePage({ consultantId }: Props) {
       return (
         <div className="bg-white rounded-lg shadow p-12 text-center">
           <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-700">No schedule found</h3>
-          <p className="text-gray-500 mt-2">No time slots available for this week</p>
+          <h3 className="text-lg font-semibold text-gray-700">Không tìm thấy lịch làm việc</h3>
+          <p className="text-gray-500 mt-2">Chưa có khung giờ nào cho tuần này</p>
         </div>
       );
     }
@@ -99,7 +114,11 @@ export default function SchedulePage({ consultantId }: Props) {
         {dates.map(date => {
           const dateObj = parseISO(date);
           const daySchedules = groupedSchedules[date];
-          const availableCount = daySchedules.filter(s => s.isavailable).length;
+          // Count truly available slots: not past, no appointment, and isavailable=true
+          const availableCount = daySchedules.filter(s => {
+            const isPast = isPastSlot(s.date, s.endtime);
+            return !isPast && !s.has_appointment && s.isavailable;
+          }).length;
 
           return (
             <div
@@ -121,30 +140,62 @@ export default function SchedulePage({ consultantId }: Props) {
                   <span className={`text-sm px-2 py-1 rounded ${
                     isToday(dateObj) ? 'bg-teal-400 text-white' : 'bg-gray-200 text-gray-600'
                   }`}>
-                    {availableCount} available
+                    {availableCount} khả dụng
                   </span>
                 </div>
               </div>
 
               <div className="p-4 space-y-2 max-h-80 overflow-y-auto">
-                {daySchedules.map(slot => (
-                  <div
-                    key={slot.scheduleid}
-                    className={`flex items-center gap-3 p-3 rounded-lg ${
-                      slot.isavailable
-                        ? 'bg-green-50 border border-green-200'
-                        : 'bg-gray-100 border border-gray-200'
-                    }`}
-                  >
-                    <Clock className={`w-4 h-4 ${slot.isavailable ? 'text-green-500' : 'text-gray-400'}`} />
-                    <span className={`font-medium ${slot.isavailable ? 'text-green-700' : 'text-gray-500'}`}>
-                      {slot.starttime} - {slot.endtime}
-                    </span>
-                    {!slot.isavailable && (
-                      <span className="text-xs text-gray-500 ml-auto">Booked</span>
-                    )}
-                  </div>
-                ))}
+                {daySchedules.map(slot => {
+                  // Check if slot is in the past
+                  const isPast = isPastSlot(slot.date, slot.endtime);
+                  
+                  // Determine status
+                  let statusLabel = '';
+                  let isUnavailable = false;
+                  
+                  if (slot.has_appointment) {
+                    // Has appointment - check status
+                    if (slot.appointment_status === 'completed') {
+                      statusLabel = 'Đã hoàn thành';
+                      isUnavailable = true;
+                    } else {
+                      // pending or confirmed
+                      statusLabel = 'Đã đặt';
+                      isUnavailable = true;
+                    }
+                  } else if (!slot.isavailable) {
+                    // Manually disabled by admin
+                    statusLabel = 'Không khả dụng';
+                    isUnavailable = true;
+                  } else if (isPast) {
+                    // Past slot without appointment
+                    statusLabel = 'Đã qua';
+                  }
+                  
+                  return (
+                    <div
+                      key={slot.scheduleid}
+                      className={`flex items-center gap-3 p-3 rounded-lg ${
+                        isUnavailable || isPast
+                          ? 'bg-gray-100 border border-gray-200'
+                          : 'bg-green-50 border border-green-200'
+                      }`}
+                    >
+                      <Clock className={`w-4 h-4 ${
+                        isUnavailable || isPast ? 'text-gray-400' : 'text-green-500'
+                      }`} />
+                      <span className={`font-medium ${
+                        isUnavailable || isPast ? 'text-gray-500' : 'text-green-700'
+                      }`}>
+                        {slot.starttime} - {slot.endtime}
+                      </span>
+                      {statusLabel && (
+                        <span className="text-xs text-gray-500 ml-auto">{statusLabel}</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
@@ -158,8 +209,8 @@ export default function SchedulePage({ consultantId }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">My Schedule</h2>
-          <p className="text-gray-500 mt-1">Your available time slots</p>
+          <h2 className="text-2xl font-bold text-gray-800">Lịch Làm Việc</h2>
+          <p className="text-gray-500 mt-1">Các khung giờ khả dụng của bạn</p>
         </div>
 
         <div className="flex items-center gap-4">
@@ -188,7 +239,7 @@ export default function SchedulePage({ consultantId }: Props) {
             className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            Làm Mới
           </button>
         </div>
       </div>

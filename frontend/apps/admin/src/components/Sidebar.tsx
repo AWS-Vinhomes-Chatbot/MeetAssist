@@ -27,9 +27,9 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { path: '/', icon: <LayoutDashboard size={20} />, label: 'Overview' },
-  { path: '/consultants', icon: <Users size={20} />, label: 'Consultants' },
-  { path: '/appointments', icon: <Calendar size={20} />, label: 'Appointments' },
+  { path: '/', icon: <LayoutDashboard size={20} />, label: 'Tổng Quan' },
+  { path: '/consultants', icon: <Users size={20} />, label: 'Tư Vấn Viên' },
+  { path: '/appointments', icon: <Calendar size={20} />, label: 'Lịch Hẹn' },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
@@ -40,7 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
 
   const getThemeTitle = () => {
     if (!isCollapsed) return undefined;
-    return theme === 'dark' ? 'Light Mode' : 'Dark Mode';
+    return theme === 'dark' ? 'Chế Độ Sáng' : 'Chế Độ Tối';
   };
 
   return (
@@ -113,7 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
             title={getThemeTitle()}
           >
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-            {!isCollapsed && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
+            {!isCollapsed && <span>{theme === 'dark' ? 'Chế Độ Sáng' : 'Chế Độ Tối'}</span>}
           </button>
 
           {/* User Profile */}
@@ -127,7 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
             {!isCollapsed && (
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{userEmail}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Administrator</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Quản Trị Viên</p>
               </div>
             )}
           </div>
@@ -139,10 +139,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
               'flex items-center gap-3 w-full px-3 py-2.5 rounded-lg font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all',
               isCollapsed && 'lg:justify-center'
             )}
-            title={isCollapsed ? 'Logout' : undefined}
+            title={isCollapsed ? 'Đăng Xuất' : undefined}
           >
             <LogOut size={20} />
-            {!isCollapsed && <span>Logout</span>}
+            {!isCollapsed && <span>Đăng Xuất</span>}
           </button>
         </div>
       </aside>
