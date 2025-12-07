@@ -1,14 +1,11 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import clsx from 'clsx';
-import { useTheme } from '../contexts/ThemeContext';
 import {
   LayoutDashboard,
   Users,
   UserCircle,
   Calendar,
-  Sun,
-  Moon,
   LogOut,
   Bot,
   ChevronLeft,
@@ -35,15 +32,9 @@ const navItems: NavItem[] = [
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
-  const { theme, toggleTheme } = useTheme();
   const [isCollapsed, setIsCollapsed] = useState(false);
   
   const getInitial = (email: string) => email.charAt(0).toUpperCase();
-
-  const getThemeTitle = () => {
-    if (!isCollapsed) return undefined;
-    return theme === 'dark' ? 'Chế Độ Sáng' : 'Chế Độ Tối';
-  };
 
   return (
     <>
@@ -103,20 +94,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ userEmail, onLogout }) => {
           ))}
         </nav>
 
-        {/* Theme Toggle & User Profile */}
+        {/* User Profile */}
         <div className="p-3 border-t border-gray-200 dark:border-gray-700 space-y-3">
-          {/* Theme Toggle */}
-          <button
-            onClick={toggleTheme}
-            className={clsx(
-              'flex items-center gap-3 w-full px-3 py-2.5 rounded-lg font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all',
-              isCollapsed && 'lg:justify-center'
-            )}
-            title={getThemeTitle()}
-          >
-            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-            {!isCollapsed && <span>{theme === 'dark' ? 'Chế Độ Sáng' : 'Chế Độ Tối'}</span>}
-          </button>
 
           {/* User Profile */}
           <div className={clsx(

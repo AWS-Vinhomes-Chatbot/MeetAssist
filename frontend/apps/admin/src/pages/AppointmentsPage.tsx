@@ -10,8 +10,10 @@ import {
   updateAppointment, 
   deleteAppointment,
   getConsultants,
-  getCustomers
+  getCustomers,
+  getScheduleByConsultant
 } from '../services/api.service';
+import { formatDateVN, formatTimeVN, statusToVietnamese, getStatusBadgeClass } from '../utils/formatters';
 
 // Helper function to get local date string (YYYY-MM-DD) instead of UTC
 const getLocalDateString = (date: Date = new Date()): string => {
@@ -29,6 +31,8 @@ export default function AppointmentsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [availableSlots, setAvailableSlots] = useState<Array<{starttime: string; endtime: string}>>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [formData, setFormData] = useState({
     consultantid: 0,
     customerid: 0,
@@ -57,6 +61,13 @@ export default function AppointmentsPage() {
     fetchConsultants();
     fetchCustomers();
   }, [statusFilter]);
+
+  // Fetch available slots when consultant or date changes
+  useEffect(() => {
+    if (formData.consultantid && formData.date && isModalOpen) {
+      fetchAvailableSlots(formData.consultantid, formData.date);
+    }
+  }, [formData.consultantid, formData.date, isModalOpen]);
 
   // Reset to page 1 when filter changes
   useEffect(() => {
@@ -96,13 +107,52 @@ export default function AppointmentsPage() {
     }
   };
 
+  const fetchAvailableSlots = async (consultantId: number, date: string) => {
+    if (!consultantId || !date) {
+      setAvailableSlots([]);
+      return;
+    }
+
+    console.log('Fetching slots for consultant:', consultantId, 'date:', date);
+    setLoadingSlots(true);
+    try {
+      const response = await getScheduleByConsultant(consultantId, {
+        date_from: date,
+        date_to: date
+      });
+      
+      console.log('Schedule response:', response);
+      
+      // Filter only available slots for the selected date
+      const slots = (response.schedules || [])
+        .filter((slot: any) => slot.date === date && slot.isavailable && !slot.has_appointment)
+        .map((slot: any) => ({
+          starttime: slot.starttime,
+          endtime: slot.endtime
+        }));
+      
+      setAvailableSlots(slots);
+      
+      // Auto-select first slot if available
+      if (slots.length > 0 && !formData.time) {
+        setFormData(prev => ({ ...prev, time: slots[0].starttime }));
+      }
+    } catch (error) {
+      console.error('Error fetching available slots:', error);
+      setAvailableSlots([]);
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
   const handleCreate = () => {
     setEditingAppointment(null);
+    setAvailableSlots([]);
     setFormData({
       consultantid: 0,
       customerid: 0,
       date: getLocalDateString(),
-      time: '09:00',
+      time: '',
       duration: 60,
       meetingurl: '',
       status: 'pending',
@@ -124,6 +174,8 @@ export default function AppointmentsPage() {
       description: appointment.description || ''
     });
     setIsModalOpen(true);
+    // Fetch available slots for editing too
+    fetchAvailableSlots(appointment.consultantid, appointment.date);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -153,16 +205,6 @@ export default function AppointmentsPage() {
       console.error('Error deleting appointment:', error);
       alert('Failed to delete appointment');
     }
-  };
-
-  const getStatusBadge = (status: string) => {
-    const statusColors: Record<string, string> = {
-      pending: 'badge-warning',
-      confirmed: 'badge-info',
-      completed: 'badge-success',
-      cancelled: 'badge-error'
-    };
-    return statusColors[status] || 'badge-neutral';
   };
 
   return (
@@ -231,15 +273,15 @@ export default function AppointmentsPage() {
                           {consultant?.fullname || `Tư Vấn Viên #${appointment.consultantid}`}
                         </td>
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                          <div className="text-sm">{appointment.date}</div>
-                          <div className="text-xs text-gray-400 dark:text-gray-500">{appointment.time}</div>
+                          <div className="text-sm">{formatDateVN(appointment.date, true)}</div>
+                          <div className="text-xs text-gray-400 dark:text-gray-500">{formatTimeVN(appointment.time)}</div>
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden lg:table-cell">
                           {appointment.duration} phút
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`badge ${getStatusBadge(appointment.status)}`}>
-                            {appointment.status}
+                          <span className={`badge ${getStatusBadgeClass(appointment.status)}`}>
+                            {statusToVietnamese(appointment.status)}
                           </span>
                         </td>
                         <td className="px-4 py-3">
@@ -342,13 +384,33 @@ export default function AppointmentsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Giờ *
               </label>
-              <input
-                type="time"
+              <select
                 required
                 value={formData.time}
                 onChange={(e) => setFormData({ ...formData, time: e.target.value })}
                 className="input"
-              />
+                disabled={loadingSlots || !formData.consultantid || !formData.date}
+              >
+                <option value="">
+                  {loadingSlots 
+                    ? 'Đang tải slot...' 
+                    : !formData.consultantid || !formData.date
+                    ? 'Chọn tư vấn viên và ngày trước'
+                    : availableSlots.length === 0
+                    ? 'Không có slot khả dụng'
+                    : 'Chọn giờ'
+                  }
+                </option>
+                {availableSlots.map((slot, index) => {
+                  const startTime = slot.starttime.substring(0, 5); // HH:MM
+                  const endTime = slot.endtime.substring(0, 5); // HH:MM
+                  return (
+                    <option key={index} value={slot.starttime}>
+                      {startTime} - {endTime}
+                    </option>
+                  );
+                })}
+              </select>
             </div>
           </div>
 

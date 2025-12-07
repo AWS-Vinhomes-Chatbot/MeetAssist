@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiService } from '../services/api.service';
 import { CalendarCheck, Clock, Loader2, User, Phone, Mail, Check, X, RefreshCw, Filter, CheckCircle, AlertCircle } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { formatDateVN, formatTimeVN, statusToVietnamese, getStatusBadgeClass } from '../utils/formatters';
 
 interface Appointment {
   appointmentid: number;
@@ -227,15 +227,9 @@ export default function AppointmentsPage({ consultantId }: Props) {
   };
 
   const getStatusBadge = (status: string) => {
-    const styles: Record<string, string> = {
-      pending: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-      confirmed: 'bg-green-100 text-green-700 border-green-200',
-      completed: 'bg-blue-100 text-blue-700 border-blue-200',
-      cancelled: 'bg-red-100 text-red-700 border-red-200'
-    };
     return (
-      <span className={`px-3 py-1 rounded-full text-sm font-medium border ${styles[status] || 'bg-gray-100 text-gray-700'}`}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
+      <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusBadgeClass(status)}`}>
+        {statusToVietnamese(status)}
       </span>
     );
   };
@@ -300,11 +294,11 @@ export default function AppointmentsPage({ consultantId }: Props) {
                       </div>
                       <div>
                         <p className="font-medium text-gray-800">
-                          {format(parseISO(apt.date), 'EEEE, MMMM d')}
+                          {formatDateVN(apt.date, true)}
                         </p>
                         <p className="text-sm text-gray-500 flex items-center gap-1">
                           <Clock className="w-3 h-3" />
-                          {apt.time}
+                          {formatTimeVN(apt.time)}
                         </p>
                       </div>
                     </div>
