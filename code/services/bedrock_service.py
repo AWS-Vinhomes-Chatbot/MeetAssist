@@ -337,6 +337,26 @@ class BedrockService:
 - Ngày cụ thể từ user (VD: "ngày 15/12/2025") → dùng %s với format 'YYYY-MM-DD'
 - So sánh DATE với TIMESTAMP: dùng col::date hoặc DATE(col)
 
+## QUY TẮC BẢO MẬT & QUYỀN TRUY CẬP (CRITICAL):
+### 1. LỊCH HẸN CỦA CUSTOMER (bảng appointment):
+- **BẮT BUỘC**: Khi query appointment liên quan đến customer cụ thể, PHẢI có WHERE customerid = %s::VARCHAR
+- Ví dụ câu hỏi: "lịch hẹn của tôi", "cuộc hẹn của mình", "appointment của customer X"
+- **KHÔNG** cho phép query tất cả appointment mà không filter theo customerid (trừ khi hỏi thống kê tổng quát)
+- **CHỈ** customer được xem appointment của chính họ (dùng customer_id từ THÔNG TIN USER HIỆN TẠI)
+
+### 2. LỊCH TƯ VẤN VIÊN (bảng consultantschedule):
+- **BẮT BUỘC**: CHỈ query lịch HIỆN TẠI và TƯƠNG LAI, KHÔNG query quá khứ
+- **LOGIC THỜI GIAN**:
+  * Ngày tương lai (date > CURRENT_DATE): Lấy TẤT CẢ slots, KHÔNG cần kiểm tra starttime
+  * Hôm nay (date = CURRENT_DATE): Chỉ lấy slots có starttime >= CURRENT_TIME
+  * Kết hợp: `(date > CURRENT_DATE) OR (date = CURRENT_DATE AND starttime >= CURRENT_TIME)`
+- Ví dụ: "lịch trống của tư vấn viên", "slot còn trống", "lịch rảnh" → áp dụng logic trên
+- **LÝ DO**: Bảo mật thông tin cá nhân, lịch quá khứ không còn ý nghĩa cho đặt lịch
+
+### 3. XỬ LÝ VI PHẠM:
+- Nếu user hỏi appointment của customer mà không có customer_id context → trả <error>Cần đăng nhập để xem lịch hẹn cá nhân</error>
+- Nếu user cố query consultantschedule quá khứ → tự động thêm date >= CURRENT_DATE, KHÔNG trả lỗi
+
 ## FEW-SHOT EXAMPLES:
 
 ### Ví dụ 1 - Query đơn giản:
@@ -413,6 +433,29 @@ Question: Lịch hẹn sắp tới của mình tuần này
 <sql>SELECT appointmentid, date, time FROM appointment WHERE customerid = %s::VARCHAR AND status = 'upcoming' AND date >= date_trunc('week', CURRENT_DATE) AND date < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days' ORDER BY date ASC, time ASC</sql>
 <params>["fb_67890"]</params>
 <validation>1 placeholder = 1 param ✓ | status cố định ✓ | customer_id từ context ✓ | param cast to VARCHAR ✓</validation>
+
+### Ví dụ 11 - LỊCH TƯ VẤN VIÊN (TẤT CẢ LỊCH TRỐNG):
+Schema: consultantschedule(scheduleid, consultantid, date, starttime, endtime, isavailable), consultant(consultantid, fullname)
+Question: Lịch trống của tư vấn viên Nguyễn Văn A
+<reasoning>Query consultantschedule → BẮT BUỘC (date > CURRENT_DATE) OR (date = CURRENT_DATE AND starttime >= CURRENT_TIME). Tên tư vấn viên dùng unaccent(), isavailable=true.</reasoning>
+<sql>SELECT cs.scheduleid, cs.date, cs.starttime, cs.endtime FROM consultantschedule cs JOIN consultant c ON cs.consultantid = c.consultantid WHERE unaccent(LOWER(c.fullname)) ILIKE unaccent(LOWER(%s)) AND cs.isavailable = true AND (cs.date > CURRENT_DATE OR (cs.date = CURRENT_DATE AND cs.starttime >= CURRENT_TIME)) ORDER BY cs.date ASC, cs.starttime ASC</sql>
+<params>["%Nguyễn Văn A%"]</params>
+<validation>1 placeholder = 1 param ✓ | date > CURRENT_DATE OR (date = CURRENT_DATE AND starttime >= CURRENT_TIME) bắt buộc ✓ | isavailable là boolean ✓</validation>
+
+### Ví dụ 11b - LỊCH TRỐNG NGÀY MAI (NGÀY CỤ THỂ TRONG TƯƠNG LAI):
+Schema: consultantschedule(scheduleid, consultantid, date, starttime, endtime, isavailable), consultant(consultantid, fullname)
+Question: Lịch trống ngày mai
+<reasoning>Query consultantschedule ngày mai (date = CURRENT_DATE + 1 day) → Lấy TẤT CẢ slots trong ngày, KHÔNG cần kiểm tra starttime vì là ngày tương lai.</reasoning>
+<sql>SELECT cs.scheduleid, cs.date, cs.starttime, cs.endtime, c.fullname FROM consultantschedule cs JOIN consultant c ON cs.consultantid = c.consultantid WHERE cs.date = CURRENT_DATE + INTERVAL '1 day' AND cs.isavailable = true ORDER BY cs.starttime ASC</sql>
+<params>[]</params>
+<validation>0 placeholder = 0 param ✓ | date = CURRENT_DATE + INTERVAL '1 day' (ngày mai) ✓ | KHÔNG có starttime >= CURRENT_TIME vì là ngày tương lai ✓</validation>
+
+### Ví dụ 12 - VI PHẠM BẢO MẬT (KHÔNG CÓ CUSTOMER_ID):
+Schema: appointment(appointmentid, customerid, consultantid, date, time, status)
+THÔNG TIN USER HIỆN TẠI: KHÔNG CÓ (chưa đăng nhập)
+Question: Cho xem lịch hẹn của tôi
+<reasoning>User hỏi "của tôi" nhưng không có customer_id trong context → vi phạm bảo mật.</reasoning>
+<error>Cần đăng nhập để xem lịch hẹn cá nhân</error>
 
 
 ---
@@ -1130,7 +1173,7 @@ params: [appointment_id, customer_id]
         # Check if SQL was successfully generated
         if not sql_statements:
             return {"statusCode": 500,
-                    "body": {"response": "Unable to generate SQL for the provided prompt, please try again."},
+                    "body": {"response": " Xin lỗi bạn, tôi không thể tìm kiếm thông tin liên quan đến yêu cầu của bạn."},
                     "headers": {"Content-Type": "application/json"}}
 
         # SECURITY CHECK: Block INSERT/UPDATE/DELETE mutations
