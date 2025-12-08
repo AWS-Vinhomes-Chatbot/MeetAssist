@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Plus, Calendar, AlertTriangle, Mail, Lock, CheckCircle, XCircle, Edit2, Trash2, RefreshCw, Loader2, Ban, KeyRound } from 'lucide-react';
 import Header from '../components/Header';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -127,11 +128,11 @@ export default function ConsultantsPage() {
     setSyncing(true);
     try {
       const result = await syncAllConsultantAccounts();
-      alert(`✅ Sync hoàn tất!\n• Tạo mới: ${result.created}\n• Đã tồn tại: ${result.already_exists}\n• Bỏ qua: ${result.skipped}\n• Lỗi: ${result.failed}`);
+      alert(`Sync hoàn tất!\n• Tạo mới: ${result.created}\n• Đã tồn tại: ${result.already_exists}\n• Bỏ qua: ${result.skipped}\n• Lỗi: ${result.failed}`);
       fetchConsultants(); // Refresh list
     } catch (error) {
       console.error('Error syncing accounts:', error);
-      alert('❌ Không thể đồng bộ accounts');
+      alert('Không thể đồng bộ accounts');
     } finally {
       setSyncing(false);
     }
@@ -163,7 +164,7 @@ export default function ConsultantsPage() {
         });
         
         if (result.success) {
-          alert(`✅ Tạo account thành công!\nEmail với mật khẩu tạm đã được gửi đến ${selectedAccountConsultant.email}`);
+          alert(`Tạo account thành công!\nEmail với mật khẩu tạm đã được gửi đến ${selectedAccountConsultant.email}`);
         } else {
           throw new Error(result.error || 'Failed to create account');
         }
@@ -171,7 +172,7 @@ export default function ConsultantsPage() {
         const result = await resetConsultantPassword(selectedAccountConsultant.email);
         
         if (result.success) {
-          alert(`✅ Reset password thành công!\nMật khẩu mới: ${result.temp_password}\n\nHãy gửi mật khẩu này cho consultant.`);
+          alert(`Reset password thành công!\nMật khẩu mới: ${result.temp_password}\n\nHãy gửi mật khẩu này cho consultant.`);
         } else {
           throw new Error(result.error || 'Failed to reset password');
         }
@@ -181,7 +182,7 @@ export default function ConsultantsPage() {
       fetchConsultants(); // Refresh list
     } catch (error) {
       console.error('Account action error:', error);
-      alert(`❌ Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setAccountActionLoading(false);
     }
@@ -195,14 +196,14 @@ export default function ConsultantsPage() {
     try {
       const result = await deleteConsultantAccount(consultant.email);
       if (result.success) {
-        alert('✅ Đã xóa account');
+        alert('Đã xóa account');
         fetchConsultants();
       } else {
         throw new Error(result.error || 'Failed to delete account');
       }
     } catch (error) {
       console.error('Error deleting account:', error);
-      alert(`❌ Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -212,7 +213,7 @@ export default function ConsultantsPage() {
     if (!status || !status.exists) {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-          ❌ Chưa có
+          <XCircle className="w-3 h-3" /> Chưa có
         </span>
       );
     }
@@ -220,7 +221,7 @@ export default function ConsultantsPage() {
     if (status.status === 'CONFIRMED') {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-          ✅ Active
+          <CheckCircle className="w-3 h-3" /> Active
         </span>
       );
     }
@@ -228,7 +229,7 @@ export default function ConsultantsPage() {
     if (status.status === 'FORCE_CHANGE_PASSWORD') {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-          ⚠️ Pending
+          <AlertTriangle className="w-3 h-3" /> Pending
         </span>
       );
     }
@@ -420,11 +421,12 @@ export default function ConsultantsPage() {
               onClick={handleSyncAllAccounts} 
               variant="secondary"
               disabled={syncing}
-              icon={syncing ? "⏳" : "🔄"}
+              icon={syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
             >
               {syncing ? 'Đang đồng bộ...' : 'Đồng Bộ Tài Khoản'}
             </Button>
-            <Button onClick={handleCreate} icon="➕">
+            <Button onClick={handleCreate}>
+              <Plus size={16} className="mr-1" />
               Thêm Tư Vấn Viên
             </Button>
           </div>
@@ -503,7 +505,7 @@ export default function ConsultantsPage() {
                               className="p-2 rounded-lg text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
                               title="Tạo account"
                             >
-                              🔑
+                              <KeyRound className="w-4 h-4" />
                             </button>
                           ) : (
                             <>
@@ -512,14 +514,14 @@ export default function ConsultantsPage() {
                               className="p-2 rounded-lg text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
                               title="Đặt lại mật khẩu"
                             >
-                                🔄
+                                <RefreshCw className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDeleteAccount(consultant); }}
                                 className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                                 title="Xóa account"
                               >
-                                🚫
+                                <Ban className="w-4 h-4" />
                               </button>
                             </>
                           )}
@@ -529,14 +531,14 @@ export default function ConsultantsPage() {
                             className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
                             title="Chỉnh sửa"
                           >
-                            ✏️
+                            <Edit2 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDelete(consultant.consultantid); }}
                             className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                             title="Xóa"
                           >
-                            🗑️
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -677,7 +679,8 @@ export default function ConsultantsPage() {
                   )}
                 </div>
               </div>
-              <Button onClick={handleAddSchedule} icon="➕" size="sm">
+              <Button onClick={handleAddSchedule} size="sm">
+                <Plus size={14} className="mr-1" />
                 Thêm lịch
               </Button>
             </div>
@@ -690,7 +693,7 @@ export default function ConsultantsPage() {
             </div>
           ) : schedules.length === 0 ? (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              <p className="text-4xl mb-2">📅</p>
+              <Calendar size={48} className="mx-auto mb-2 opacity-50" />
               <p>Chưa có lịch làm việc nào được thiết lập</p>
               <p className="text-sm mt-2">Nhấn "Thêm lịch" để tạo lịch mới</p>
             </div>
@@ -757,14 +760,14 @@ export default function ConsultantsPage() {
                                 className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
                                 title="Edit"
                               >
-                                ✏️
+                                <Edit2 className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleDeleteSchedule(schedule.scheduleid)}
                                 className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                                 title="Delete"
                               >
-                                🗑️
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           </div>
@@ -878,7 +881,7 @@ export default function ConsultantsPage() {
       <Modal
         isOpen={isAccountModalOpen}
         onClose={() => setIsAccountModalOpen(false)}
-        title={accountModalType === 'create' ? '🔑 Tạo Account Portal' : '🔄 Reset Password'}
+        title={accountModalType === 'create' ? 'Tạo Account Portal' : 'Reset Password'}
         size="sm"
       >
         <div className="space-y-4">
@@ -902,12 +905,12 @@ export default function ConsultantsPage() {
 
               {accountModalType === 'create' ? (
                 <div className="text-sm text-gray-600 dark:text-gray-300">
-                  <p className="mb-2">📧 Một email với mật khẩu tạm thời sẽ được gửi đến consultant.</p>
+                  <p className="mb-2 flex items-center gap-2"><Mail className="w-4 h-4" /> Một email với mật khẩu tạm thời sẽ được gửi đến consultant.</p>
                   <p>Consultant cần đổi mật khẩu khi đăng nhập lần đầu.</p>
                 </div>
               ) : (
                 <div className="text-sm text-gray-600 dark:text-gray-300">
-                  <p className="mb-2">🔐 Mật khẩu mới sẽ được tạo và hiển thị sau khi hoàn tất.</p>
+                  <p className="mb-2 flex items-center gap-2"><Lock className="w-4 h-4" /> Mật khẩu mới sẽ được tạo và hiển thị sau khi hoàn tất.</p>
                   <p>Consultant cần đổi mật khẩu khi đăng nhập tiếp theo.</p>
                 </div>
               )}
@@ -925,10 +928,10 @@ export default function ConsultantsPage() {
                   disabled={accountActionLoading}
                 >
                   {accountActionLoading 
-                    ? '⏳ Đang xử lý...' 
+                    ? 'Đang xử lý...' 
                     : accountModalType === 'create' 
-                      ? '✅ Tạo Account' 
-                      : '🔄 Reset Password'
+                      ? 'Tạo Account' 
+                      : 'Reset Password'
                   }
                 </Button>
               </div>

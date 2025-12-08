@@ -10,8 +10,11 @@ import {
   updateAppointment, 
   deleteAppointment,
   getConsultants,
-  getCustomers
+  getCustomers,
+  getScheduleByConsultant
 } from '../services/api.service';
+import { formatDateVN, formatTimeVN, statusToVietnamese, getStatusBadgeClass } from '../utils/formatters';
+import { Edit2, Trash2, Plus } from 'lucide-react';
 
 // Helper function to get local date string (YYYY-MM-DD) instead of UTC
 const getLocalDateString = (date: Date = new Date()): string => {
@@ -29,9 +32,11 @@ export default function AppointmentsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [availableSlots, setAvailableSlots] = useState<any[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [formData, setFormData] = useState({
     consultantid: 0,
-    customerid: 0,
+    customerid: '',
     date: '',
     time: '',
     duration: 60,
@@ -57,6 +62,13 @@ export default function AppointmentsPage() {
     fetchConsultants();
     fetchCustomers();
   }, [statusFilter]);
+
+  // Fetch available slots when consultant or date changes
+  useEffect(() => {
+    if (formData.consultantid && formData.date && isModalOpen) {
+      fetchAvailableSlots(formData.consultantid, formData.date);
+    }
+  }, [formData.consultantid, formData.date, isModalOpen]);
 
   // Reset to page 1 when filter changes
   useEffect(() => {
@@ -96,18 +108,68 @@ export default function AppointmentsPage() {
     }
   };
 
+  const fetchAvailableSlots = async (consultantId: number, date: string, currentTime?: string) => {
+    if (!consultantId || !date) {
+      setAvailableSlots([]);
+      return;
+    }
+
+    setLoadingSlots(true);
+    try {
+      const response = await getScheduleByConsultant(
+        consultantId,
+        date,
+        date
+      );
+      
+      const slots = (response.schedules || [])
+        .filter((slot: any) => {
+          // Must match the selected date
+          if (slot.date !== date) return false;
+          
+          // When editing: include current slot even if it has appointment
+          // When creating: only show available slots without appointments
+          if (editingAppointment && currentTime) {
+            // Include if: (1) it's available and no appointment, OR (2) it's the current slot being edited
+            return (slot.isavailable && !slot.has_appointment) || (slot.starttime === currentTime);
+          } else {
+            // Creating new: only available slots without appointments
+            return slot.isavailable && !slot.has_appointment;
+          }
+        })
+        .map((slot: any) => ({
+          scheduleid: slot.scheduleid,
+          starttime: slot.starttime,
+          endtime: slot.endtime
+        }));
+      
+      setAvailableSlots(slots);
+      
+      if (!editingAppointment && slots.length > 0 && !formData.time) {
+        setFormData(prev => ({ ...prev, time: slots[0].starttime }));
+      }
+    } catch (error) {
+      console.error('Error fetching available slots:', error);
+      setAvailableSlots([]);
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
   const handleCreate = () => {
     setEditingAppointment(null);
+    setAvailableSlots([]);
     setFormData({
       consultantid: 0,
-      customerid: 0,
+      customerid: '',
       date: getLocalDateString(),
-      time: '09:00',
+      time: '',
       duration: 60,
       meetingurl: '',
       status: 'pending',
       description: ''
     });
+    setAvailableSlots([]);
     setIsModalOpen(true);
   };
 
@@ -123,7 +185,9 @@ export default function AppointmentsPage() {
       status: appointment.status,
       description: appointment.description || ''
     });
+    setAvailableSlots([]);
     setIsModalOpen(true);
+    fetchAvailableSlots(appointment.consultantid, appointment.date, appointment.time);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -155,15 +219,41 @@ export default function AppointmentsPage() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    const statusColors: Record<string, string> = {
-      pending: 'badge-warning',
-      confirmed: 'badge-info',
-      completed: 'badge-success',
-      cancelled: 'badge-error'
+  // Load available slots when consultant and date are selected
+  useEffect(() => {
+    const loadAvailableSlots = async () => {
+      if (!formData.consultantid || !formData.date) {
+        setAvailableSlots([]);
+        return;
+      }
+
+      try {
+        setLoadingSlots(true);
+        const response = await getScheduleByConsultant(
+          formData.consultantid,
+          formData.date,
+          formData.date
+        );
+
+        if (response.success && response.schedules) {
+          // Filter only available slots (no appointment and isavailable=true)
+          const availableOnly = response.schedules.filter(
+            (slot: any) => slot.isavailable && !slot.has_appointment
+          );
+          setAvailableSlots(availableOnly);
+        } else {
+          setAvailableSlots([]);
+        }
+      } catch (error) {
+        console.error('Error loading available slots:', error);
+        setAvailableSlots([]);
+      } finally {
+        setLoadingSlots(false);
+      }
     };
-    return statusColors[status] || 'badge-neutral';
-  };
+
+    loadAvailableSlots();
+  }, [formData.consultantid, formData.date]);
 
   return (
     <div className="min-h-screen">
@@ -171,7 +261,8 @@ export default function AppointmentsPage() {
         title="Quản lý Lịch hẹn" 
         subtitle="Quản lý các cuộc hẹn tư vấn"
         actions={
-          <Button onClick={handleCreate} icon="➕">
+          <Button onClick={handleCreate}>
+            <Plus size={16} className="mr-1" />
             Thêm Lịch Hẹn
           </Button>
         }
@@ -231,15 +322,15 @@ export default function AppointmentsPage() {
                           {consultant?.fullname || `Tư Vấn Viên #${appointment.consultantid}`}
                         </td>
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                          <div className="text-sm">{appointment.date}</div>
-                          <div className="text-xs text-gray-400 dark:text-gray-500">{appointment.time}</div>
+                          <div className="text-sm">{formatDateVN(appointment.date, true)}</div>
+                          <div className="text-xs text-gray-400 dark:text-gray-500">{formatTimeVN(appointment.time)}</div>
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400 hidden lg:table-cell">
                           {appointment.duration} phút
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`badge ${getStatusBadge(appointment.status)}`}>
-                            {appointment.status}
+                          <span className={`badge ${getStatusBadgeClass(appointment.status)}`}>
+                            {statusToVietnamese(appointment.status)}
                           </span>
                         </td>
                         <td className="px-4 py-3">
@@ -249,14 +340,14 @@ export default function AppointmentsPage() {
                               className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
                               title="Chỉnh sửa"
                             >
-                              ✏️
+                              <Edit2 size={16} />
                             </button>
                             <button
                               onClick={() => handleDelete(appointment.appointmentid)}
                               className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                               title="Xóa"
                             >
-                              🗑️
+                              <Trash2 size={16} />
                             </button>
                           </div>
                         </td>
@@ -292,10 +383,10 @@ export default function AppointmentsPage() {
               <select
                 required
                 value={formData.customerid}
-                onChange={(e) => setFormData({ ...formData, customerid: parseInt(e.target.value) })}
+                onChange={(e) => setFormData({ ...formData, customerid: e.target.value })}
                 className="input"
               >
-                <option value={0}>Chọn Khách Hàng</option>
+                <option value="">Chọn Khách Hàng</option>
                 {customers.map(customer => (
                   <option key={customer.customerid} value={customer.customerid}>
                     {customer.fullname}
@@ -342,13 +433,38 @@ export default function AppointmentsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Giờ *
               </label>
-              <input
-                type="time"
-                required
-                value={formData.time}
-                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                className="input"
-              />
+              {loadingSlots ? (
+                <div className="input flex items-center justify-center">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent"></div>
+                  <span className="ml-2 text-sm">Đang tải slot...</span>
+                </div>
+              ) : availableSlots.length > 0 ? (
+                <select
+                  required
+                  value={formData.time}
+                  onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                  className="input"
+                >
+                  <option value="">Chọn Giờ</option>
+                  {availableSlots.map((slot) => {
+                    const startTime = slot.starttime.substring(0, 5); // HH:MM
+                    const endTime = slot.endtime.substring(0, 5); // HH:MM
+                    return (
+                      <option key={slot.scheduleid} value={slot.starttime}>
+                        {startTime} - {endTime}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : formData.consultantid && formData.date ? (
+                <div className="input text-sm text-gray-500">
+                  Không có slot khả dụng
+                </div>
+              ) : (
+                <div className="input text-sm text-gray-500">
+                  Chọn tư vấn viên và ngày trước
+                </div>
+              )}
             </div>
           </div>
 

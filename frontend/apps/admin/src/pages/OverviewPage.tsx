@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Header } from '../components/Header';
 import { Button } from '../components/Button';
 import { getOverviewStats, getAppointments } from '../services/api.service';
+import { formatDateVN, statusToVietnamese } from '../utils/formatters';
 import {
   PieChart,
   Pie,
@@ -22,7 +23,6 @@ import {
   Clock,
   XCircle,
 } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
 
 interface OverviewStats {
   total_customers: number;
@@ -33,19 +33,7 @@ interface OverviewStats {
   total_feedbacks: number;
 }
 
-// Helper function to format date from PostgreSQL
-const formatDate = (dateStr: string): string => {
-  if (!dateStr) return 'N/A';
-  try {
-    const date = new Date(dateStr);
-    if (Number.isNaN(date.getTime())) {
-      return dateStr.split('T')[0] || dateStr;
-    }
-    return date.toLocaleDateString('vi-VN');
-  } catch {
-    return dateStr;
-  }
-};
+
 
 interface Appointment {
   appointmentid: number;
@@ -100,8 +88,6 @@ const StatCardWithIcon = ({
 );
 
 const OverviewPage: React.FC = () => {
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<OverviewStats | null>(null);
@@ -134,13 +120,14 @@ const OverviewPage: React.FC = () => {
   // Prepare pie chart data
   const appointmentStatusData = stats?.appointments_by_status
     ? Object.entries(stats.appointments_by_status).map(([name, value]) => ({
-        name: name.charAt(0).toUpperCase() + name.slice(1),
+        name: statusToVietnamese(name),
         value: value as number,
       }))
     : [];
 
   const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
+    const statusLower = status?.toLowerCase();
+    switch (statusLower) {
       case 'confirmed':
       case 'completed':
       case 'active':
@@ -149,6 +136,7 @@ const OverviewPage: React.FC = () => {
       case 'upcoming':
         return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
       case 'cancelled':
+      case 'canceled':
       case 'inactive':
         return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400';
       default:
@@ -164,8 +152,8 @@ const OverviewPage: React.FC = () => {
 
   // Tooltip styles
   const tooltipStyle = {
-    backgroundColor: isDark ? '#1e293b' : '#ffffff',
-    border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+    backgroundColor: '#ffffff',
+    border: '1px solid #e2e8f0',
     borderRadius: '12px',
     boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.2)',
     padding: '12px 16px',
@@ -340,10 +328,10 @@ const OverviewPage: React.FC = () => {
                     <tr key={apt.appointmentid} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
                       <td className="py-3 text-slate-900 dark:text-slate-100 font-medium">{apt.customer_name}</td>
                       <td className="py-3 text-slate-600 dark:text-slate-400">{apt.consultant_name}</td>
-                      <td className="py-3 text-slate-600 dark:text-slate-400">{formatDate(apt.date)}</td>
+                      <td className="py-3 text-slate-600 dark:text-slate-400">{formatDateVN(apt.date, true)}</td>
                       <td className="py-3">
                         <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(apt.status)}`}>
-                          {apt.status}
+                          {statusToVietnamese(apt.status)}
                         </span>
                       </td>
                     </tr>

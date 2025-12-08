@@ -382,13 +382,6 @@ def send_cancellation_email(data: Dict) -> Dict:
                         <div class="detail-label">👤 Tư vấn viên:</div>
                         <div>{consultant_name}</div>
                     </div>
-                    
-                    {f'''
-                    <div class="detail-row">
-                        <div class="detail-label">📝 Nội dung:</div>
-                        <div>{description}</div>
-                    </div>
-                    ''' if description else ''}
                 </div>
                 
                 {f'''
