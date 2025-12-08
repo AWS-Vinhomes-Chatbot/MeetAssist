@@ -880,13 +880,13 @@ class Admin:
     def delete_consultant(self, consultantid: int) -> Dict[str, Any]:
         """
         Soft delete a consultant (set isdisabled = true)
-        Only allowed if consultant has NO active appointments (pending/confirmed)
+        Only allowed if consultant has NO appointments (any status)
         
         Args:
             consultantid: ID of consultant to delete
             
         Returns:
-            Dict with success status or error if has active appointments
+            Dict with success status or error if has any appointments
         """
         try:
             with self.conn.cursor() as cur:
@@ -899,27 +899,25 @@ class Admin:
                 if not consultant:
                     return {"success": False, "error": "Consultant not found"}
                 
-                # Check for active appointments (pending or confirmed, not past)
+                # Check for ANY appointments (regardless of status)
                 cur.execute("""
-                    SELECT COUNT(*) as active_count
+                    SELECT COUNT(*) as appointment_count
                     FROM appointment 
-                    WHERE consultantid = %s 
-                    AND status IN ('pending', 'confirmed')
-                    AND date >= CURRENT_DATE
+                    WHERE consultantid = %s
                 """, (consultantid,))
                 
-                active_count = cur.fetchone()[0]
+                appointment_count = cur.fetchone()[0]
                 
-                if active_count > 0:
+                if appointment_count > 0:
                     self._log_info(
-                        f"Cannot delete consultant {consultantid}: has {active_count} active appointments"
+                        f"Cannot delete consultant {consultantid}: has {appointment_count} appointment(s)"
                     )
                     return {
                         "success": False,
-                        "error": "Cannot delete consultant with active appointments",
-                        "active_appointments": active_count,
-                        "message": f"This consultant has {active_count} active appointment(s). "
-                                   f"Please cancel or complete these appointments before deleting."
+                        "error": "Cannot delete consultant with appointments",
+                        "appointment_count": appointment_count,
+                        "message": f"This consultant has {appointment_count} appointment(s) in the system. "
+                                   f"Consultants with appointment history cannot be deleted."
                     }
                 
                 # Proceed with soft delete
