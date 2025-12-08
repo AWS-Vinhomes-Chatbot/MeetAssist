@@ -44,8 +44,13 @@ interface Appointment {
   status: string;
 }
 
-// Chart colors
-const PIE_COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#06b6d4'];
+// Chart colors mapped by status
+const STATUS_COLORS: Record<string, string> = {
+  'Chờ Xác Nhận': '#f59e0b',    // Yellow/Orange for pending
+  'Đã Xác Nhận': '#10b981',       // Green for completed  
+  'Đã Hủy': '#ef4444',           // Red for cancelled
+  'Hoàn Thành': '#3b82f6',      // Blue for confirmed
+};
 
 // Stat card with icon
 const StatCardWithIcon = ({
@@ -287,8 +292,8 @@ const OverviewPage: React.FC = () => {
                     paddingAngle={4}
                     dataKey="value"
                   >
-                    {appointmentStatusData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    {appointmentStatusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={STATUS_COLORS[entry.name] || '#94a3b8'} />
                     ))}
                   </Pie>
                   <Tooltip contentStyle={tooltipStyle} />
