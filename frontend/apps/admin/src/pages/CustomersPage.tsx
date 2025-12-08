@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Plus, Edit2, Trash2 } from 'lucide-react';
 import Header from '../components/Header';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -200,7 +201,8 @@ export default function CustomersPage() {
             />
           </div>
           <Button onClick={handleCreate}>
-            + Thêm Khách Hàng
+            <Plus size={16} className="mr-1" />
+            Thêm Khách Hàng
           </Button>
         </div>
 
@@ -273,18 +275,22 @@ export default function CustomersPage() {
                         {customer.phonenumber || '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button
-                          onClick={() => handleEdit(customer)}
-                          className="text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-300 mr-4"
-                        >
-                          Sửa
-                        </button>
-                        <button
-                          onClick={() => handleDelete(customer)}
-                          className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
-                        >
-                          Xóa
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleEdit(customer)}
+                            className="p-2 rounded-lg text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                            title="Chỉnh sửa"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(customer)}
+                            className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                            title="Xóa"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
