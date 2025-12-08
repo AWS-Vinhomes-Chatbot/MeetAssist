@@ -68,12 +68,18 @@ The dependencies for the MeetAssist code solution, and custom resource to initia
 
 1. Navigate to the [MeetAssistData](https://drive.google.com/drive/folders/1JQ9X9BbKL7q82sEifvN5Seas7Mrgh4Q7?usp=sharing), and download the data to your local machine.
 2. Unzip the file, which will expand into a file called `DATA`.
-3. Run this CLI script to create this project's Amazon Simple Storage Service (Amazon S3) bucket format. Replace <account-id> and  with your AWS account ID.
+
+ **IMPORTANT WARNING - Do NOT open CSV files with Excel:**
+  - **Microsoft Excel can automatically convert data formats**, which may corrupt the data (e.g., phone numbers, dates, IDs may be altered)
+  - **Recommended approach:** Upload the data to S3 first (step 3 & 4 below), then use **VS Code to view/validate** the CSV files instead of Excel
+  - **If you must view locally:** Use **VS Code only** - it won't modify your data like Excel does
+  - **Keep original CSV files intact** before uploading to S3
+
+3. Run this CLI script to create this project's Amazon Simple Storage Service (Amazon S3) bucket format. Replace <account-id> with your AWS account ID.
 ```
 aws s3 mb s3://meetassist-data-<account-id>-ap-northeast-1 --region ap-northeast-1
 ```
-3. Create a folder named "data" in the S3 bucket and upload all CSV files into it
-
+4. Create a folder named "data" in the S3 bucket and upload all CSV files into it
 
 ## Deploy the solution
 
