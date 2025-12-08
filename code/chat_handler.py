@@ -590,7 +590,18 @@ def _show_user_appointments(psid: str, action: str) -> str:
             
             return message
         else:
-            return "Không thể lấy danh sách lịch hẹn. Vui lòng thử lại sau."
+            # Handle SQL query errors (400, 500, etc.)
+            error_body = result.get("body", "{}")
+            if isinstance(error_body, str):
+                error_body = json.loads(error_body)
+            error_msg = error_body.get("error", error_body.get("response", ""))
+            
+            logger.error(f"SQL query error in _show_user_appointments: statusCode={result.get('statusCode')}, error={error_msg}")
+            
+            session_service.reset_appointment_info(psid)
+            session_service.set_booking_state(psid, "idle")
+            
+            return f"❌ Không thể lấy danh sách lịch hẹn: {error_msg}\n\nVui lòng thử lại sau hoặc liên hệ hỗ trợ."
             
     except Exception as e:
         logger.error(f"Error showing user appointments: {e}", exc_info=True)

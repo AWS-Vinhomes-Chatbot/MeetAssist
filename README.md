@@ -29,6 +29,7 @@ $ pip install -r requirements.txt
 The following are needed in order to proceed with this post:
 
 * An [AWS account](https://aws.amazon.com/).
+* A [Facebook account](https://www.facebook.com/) connected to [Facebook Developers](https://developers.facebook.com/) for creating the Messenger chatbot.
 * A [Git client](https://git-scm.com/downloads) to clone the source code provided.
 * [Docker](https://www.docker.com/) installed and running on the local host or laptop.
 * [Install AWS CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting-started.html)
@@ -52,9 +53,14 @@ The dependencies for the MeetAssist code solution, and custom resource to initia
 
 # Usage
 ## Configuration AWS CLI
-1. Type "aws configuration" in your terminal. Make sure you have created CLI secret access key for your account
-2. Complete the configuration form. Be careful, region must be ap-northeast-1 
+1. Type `aws configure` in your terminal. Make sure you have created CLI secret access key for your account (recommend using an IAM account with admin privileges)
+2. Complete the configuration form:
+   - AWS Access Key ID: Your access key
+   - AWS Secret Access Key: Your secret key
+   - Default region name: `ap-northeast-1`
+   - Default output format: `json`
 
+**Note:** To create IAM access keys, go to AWS Console → IAM → Users → Your User → Security Credentials → Create Access Key 
 
 
 ## Download the dataset and upload to Amazon S3
@@ -121,7 +127,178 @@ aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocat
 
 
 # Using the MeetAssist Chatbot
-(Add your chatbot usage instructions here.)
+
+The MeetAssist chatbot is integrated with Facebook Messenger, allowing users to interact naturally to book, update, or cancel appointments.
+
+## Setting Up the Messenger Chatbot
+
+### 1. Create a Facebook App and Page
+
+1. Go to [Facebook Developers](https://developers.facebook.com/)
+2. Click **"My Apps"** → **"Create App"**
+3. Select **"Other"** as use case → Click **"Next"**
+4. Select **"Business"** as the app type → Click **"Next"**
+5. Fill in the app details:
+   - App Name: `MeetAssist`
+   - App Contact Email: Your email
+   - Click **"Create App"**
+6. In the "Add products to your app" section, find **"Messenger"** and click **"Set up"**
+7. Select **"Messaging businesses"** (Nhắn tin doanh nghiệp) as your use case
+8. Create or select a Facebook Page that will be linked to the chatbot
+
+### 2. Add Messenger Product
+
+1. In your app dashboard, click **"Add Product"**
+2. Find **"Messenger"** and click **"Set Up"**
+3. In the Messenger Settings, scroll to **"Access Tokens"**
+4. Select your Facebook Page and click **"Generate Token"**
+5. Copy the **Page Access Token** - you'll need this later
+
+### 3. Configure Webhooks
+
+1. In the Messenger Settings, scroll to **"Webhooks"**
+2. Click **"Add Callback URL"**
+3. Enter the following:
+   - **Callback URL**: `https://<your-api-gateway-url>/webhook` (found in `outputs.json` after CDK deployment)
+   - **Verify Token**: A random string you create (e.g., `meetassist_verify_123`)
+4. Click **"Verify and Save"**
+5. Subscribe to the following webhook fields:
+   - `messages`
+   - `messaging_postbacks`
+   - `messaging_optins`
+
+### 4. Store Credentials in AWS Secrets Manager
+
+Store your Facebook credentials securely:
+
+```bash
+aws secretsmanager create-secret \
+    --name meetassist/messenger/credentials \
+    --secret-string '{"PAGE_ACCESS_TOKEN":"<your-page-access-token>","VERIFY_TOKEN":"<your-verify-token>","APP_SECRET":"<your-app-secret>"}' \
+    --region ap-northeast-1
+```
+
+**Note:** The App Secret can be found in your Facebook App dashboard under **Settings** → **Basic**.
+
+### 5. Update Lambda Environment Variables
+
+Update the WebhookStack Lambda function with your Facebook credentials:
+
+```bash
+aws lambda update-function-configuration \
+    --function-name WebhookStack-WebhookReceiverFunction \
+    --environment Variables={MESSENGER_SECRET_NAME=meetassist/messenger/credentials} \
+    --region ap-northeast-1
+```
+
+### 6. Subscribe Page to Your App
+
+1. In Messenger Settings, scroll to **"Webhooks"**
+2. Click **"Add or Remove Pages"**
+3. Select your Facebook Page and click **"Subscribe"**
+
+### 7. Configure Messenger Profile (Get Started Button & Greeting)
+
+After deployment, the chatbot automatically configures:
+- **Get Started Button**: Users click this to begin conversation
+- **Greeting Text**: Welcome message shown before user starts chatting
+
+To manually update if needed:
+
+```bash
+# Set Get Started Button
+curl -X POST "https://graph.facebook.com/v18.0/me/messenger_profile?access_token=<PAGE_ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "get_started": {"payload": "GET_STARTED"}
+  }'
+
+# Set Greeting Text
+curl -X POST "https://graph.facebook.com/v18.0/me/messenger_profile?access_token=<PAGE_ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "greeting": [
+      {
+        "locale": "default",
+        "text": "Xin chào! Mình là MeetAssist, trợ lý đặt lịch hẹn tư vấn hướng nghiệp. Hãy nhấn \"Bắt đầu\" để sử dụng dịch vụ! 👋"
+      }
+    ]
+  }'
+```
+
+## Using the Chatbot
+
+### Authentication
+1. Open your Facebook Page in Messenger
+2. Click **"Get Started"** button
+3. The bot will ask for your email
+4. Enter your email (e.g., `user@example.com`)
+5. You'll receive a 6-digit OTP code via email
+6. Enter the OTP to authenticate
+7. After successful authentication, you can start booking appointments
+
+### Booking Appointments
+
+**Create New Appointment:**
+- Say: `"Tôi muốn đặt lịch"` or `"Đặt lịch hẹn"`
+- The bot will ask for:
+  - Consultant name (or specialization)
+  - Date
+  - Time
+- You can ask questions during booking:
+  - `"Cho xem danh sách tư vấn viên"`
+  - `"Lịch trống ngày mai như thế nào?"`
+  - `"Anh/chị X còn slot nào?"`
+- Select a time slot from the list
+- Provide your name, phone number, and email
+- Confirm the booking
+
+**Update Appointment:**
+- Say: `"Tôi muốn đổi lịch"` or `"Cập nhật lịch"`
+- Select the appointment you want to change
+- Provide new date/time/consultant
+- Select new time slot
+- Confirm the change
+
+**Cancel Appointment:**
+- Say: `"Tôi muốn hủy lịch"` or `"Cancel"`
+- Select the appointment you want to cancel
+- Confirm the cancellation
+
+### General Queries
+
+You can ask questions about:
+- **Consultants**: `"Có tư vấn viên nào chuyên về tài chính?"`
+- **Available Slots**: `"Lịch trống của anh Nguyễn Văn A?"`
+- **Appointments**: `"Cho xem lịch hẹn của tôi"`
+
+### Aborting Actions
+
+At any time during booking, you can say:
+- `"Thôi"`, `"Dừng"`, `"Hủy bỏ"`, `"Cancel"` to abort the current action
+
+## Session Management
+
+- **Session Timeout**: 30 minutes of inactivity
+- **Booking Timeout**: 10 minutes for incomplete booking flows
+- After timeout, you'll be notified and the session will reset
+
+## Troubleshooting
+
+**Issue: Bot doesn't respond**
+- Check if your Facebook Page is subscribed to the webhook
+- Verify the webhook callback URL is correct in Facebook App settings
+- Check Lambda logs in CloudWatch for errors
+
+**Issue: OTP not received**
+- Verify Amazon SES is configured and your email is verified
+- Check spam/junk folder
+- Ensure the email is in production mode in SES (not sandbox)
+
+**Issue: "System is busy" message**
+- This indicates Amazon Bedrock throttling
+- Wait 1 minute and try again
+- If persistent, contact administrator to increase Bedrock quotas
 
 
 # Using the Admin Dashboard
