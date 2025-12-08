@@ -315,125 +315,101 @@ def _start_booking_flow(psid: str, user_question: str, booking_intent: dict) -> 
 def _generate_collecting_prompt(psid: str) -> str:
     """
     Generate prompt based on what info is still needed.
+    Kiểm tra xem đủ thông tin cần cho truy vấn lịch trống để lấy id chưa.
     
     For CREATE:
-    - First, need: consultant_name, date, time (to query available slots)
+    - Only need: consultant_name (to query available slots)
     - After selecting slot: need customer_name, phone, email
     """
     current_info = session_service.get_appointment_info(psid)
     booking_action = current_info.get("booking_action", "create")
     
-    # Check if we have consultant + date + time
-    has_slot_criteria = all([
-        current_info.get("consultant_name"),
-        current_info.get("appointment_date"),
-        current_info.get("appointment_time")
-    ])
+    # CHỈ CẦN consultant_name để query
+    has_consultant = bool(current_info.get("consultant_name"))
     
-    if has_slot_criteria:
-        # Đã có đủ info để query slot - chuyển sang selecting_slot
-        return _query_and_show_available_slots(psid, current_info)
-    
-    # Build prompt asking for missing slot criteria
-    missing = []
-    if not current_info.get("consultant_name"):
-        missing.append("tư vấn viên bạn muốn gặp")
-    if not current_info.get("appointment_date"):
-        missing.append("ngày bạn muốn hẹn")
-    if not current_info.get("appointment_time"):
-        missing.append("giờ bạn muốn hẹn")
+    # Nếu đã có consultant - hỏi xác nhận (vẫn ở state collecting)
+    if has_consultant:
+        consultant_name = current_info.get("consultant_name")
+        
+        if booking_action == "update":
+            return (
+                f"🔄 **Xác nhận tư vấn viên MỚI:**\n\n"
+                f"👨‍💼 Tư vấn viên: **{consultant_name}**\n\n"
+                "Trả lời **'ok'** hoặc **'đúng'** để xem lịch trống, "
+                "hoặc cung cấp tên tư vấn viên khác nếu muốn thay đổi."
+            )
+        else:
+            return (
+                f"📝 **Xác nhận tư vấn viên:**\n\n"
+                f"👨‍💼 Tư vấn viên: **{consultant_name}**\n\n"
+                "Trả lời **'ok'** hoặc **'đúng'** để xem lịch trống, "
+                "hoặc cung cấp tên tư vấn viên khác nếu muốn thay đổi."
+            )
     
     # Differentiate between CREATE and UPDATE flow
     if booking_action == "update":
         # UPDATE flow - user đang đổi lịch cũ
-        if len(missing) == 3:
-            return (
-                "🔄 **Đổi lịch hẹn - Thông tin lịch MỚI**\n\n"
-                "Vui lòng cho mình biết lịch MỚI:\n"
-                "• Tên tư vấn viên mới (hoặc giữ nguyên)\n"
-                "• Ngày mới bạn muốn hẹn\n"
-                "• Giờ mới bạn muốn hẹn\n\n"
-                "💡 Bạn có thể hỏi:\n"
-                "• 'Cho tôi danh sách tư vấn viên'\n"
-                "• 'Lịch trống ngày mai như thế nào?'\n"
-                "• 'Anh/chị X còn slot nào trống?'"
-            )
-        
-        # Có một số info rồi - UPDATE flow
-        prompt = "🔄 **Thông tin lịch MỚI:**\n"
-        if current_info.get("consultant_name"):
-            prompt += f"✅ Tư vấn viên mới: {current_info['consultant_name']}\n"
-        if current_info.get("appointment_date"):
-            prompt += f"✅ Ngày mới: {current_info['appointment_date']}\n"
-        if current_info.get("appointment_time"):
-            prompt += f"✅ Giờ mới: {current_info['appointment_time']}\n"
-        
-        prompt += "\n👉 Vui lòng cho mình biết thêm: " + ", ".join(missing)
-        prompt += "\n💡 Hoặc hỏi: 'Cho xem danh sách tư vấn viên', 'Lịch trống của X?'"
-        
-        return prompt
-    
-    # CREATE flow
-    if len(missing) == 3:
         return (
-            "📅 **Đặt lịch hẹn tư vấn**\n\n"
-            "Để đặt lịch, vui lòng cho mình biết:\n"
-            "• Tên tư vấn viên (hoặc lĩnh vực tư vấn)\n"
-            "• Ngày bạn muốn hẹn\n"
-            "• Giờ bạn muốn hẹn\n\n"
+            "🔄 **Đổi lịch hẹn - Thông tin lịch MỚI**\n\n"
+            "Vui lòng cho mình biết **tên tư vấn viên mới** (hoặc giữ nguyên).\n\n"
             "💡 Bạn có thể hỏi:\n"
-            "• 'Có tư vấn viên nào chuyên về tài chính?'\n"
-            "• 'Lịch trống ngày mai như thế nào?'\n"
-            "• 'Cho xem danh sách tư vấn viên'"
+            "• 'Cho tôi danh sách tư vấn viên'\n"
+            "• 'Có tư vấn viên nào chuyên về [lĩnh vực]?'" \
+            "• 'Gõ 'hủy' nếu như ban không muốn đổi lịch nữa.'"
         )
     
-    # Có một số info rồi - CREATE flow
-    prompt = "📝 **Thông tin đặt lịch:**\n"
-    if current_info.get("consultant_name"):
-        prompt += f"✅ Tư vấn viên: {current_info['consultant_name']}\n"
-    if current_info.get("appointment_date"):
-        prompt += f"✅ Ngày: {current_info['appointment_date']}\n"
-    if current_info.get("appointment_time"):
-        prompt += f"✅ Giờ: {current_info['appointment_time']}\n"
-    
-    prompt += "\n👉 Vui lòng cho mình biết thêm: " + ", ".join(missing)
-    
-    return prompt
+    # CREATE flow - chỉ cần tên tư vấn viên
+    return (
+        "📅 **Đặt lịch hẹn tư vấn**\n\n"
+        "Vui lòng cho mình biết **tên tư vấn viên** bạn muốn gặp.\n\n"
+        "💡 Bạn có thể:\n"
+        "• Cho biết tên tư vấn viên\n"
+        "• Hỏi 'Có tư vấn viên nào chuyên về [lĩnh vực]?'\n"
+        "• Hỏi 'Cho xem danh sách tư vấn viên'" \
+        "• Gõ 'hủy' nếu như bạn không muốn đặt lịch nữa.'"
+    )
 
 
 def _query_and_show_available_slots(psid: str, current_info: dict) -> str:
     """
-    Query available slots based on available criteria (consultant, date, time).
-    Flexible query - uses whatever info is available, not requiring all 3.
+    Query available slots based on consultant_name + date/time if provided.
+    BẮT BUỘC: consultant_name
+    TÙY CHỌN: appointment_date, appointment_time
+    
+    LOGIC:
+    - Query lịch trống của tư vấn viên
+    - Nếu có date/time thì filter thêm
     """
     try:
         consultant = current_info.get("consultant_name", "")
         date = current_info.get("appointment_date", "")
         time = current_info.get("appointment_time", "")
         
-        # Build flexible query based on available criteria
-        conditions = []
-        if consultant:
-            conditions.append(f'tư vấn viên tên "{consultant}"')
-        if date:
-            conditions.append(f'ngày {date}')
-        if time:
-            conditions.append(f'khoảng giờ {time}')
+        # BẮT BUỘC phải có consultant_name
+        if not consultant:
+            return (
+                "❌ **Thiếu thông tin tư vấn viên**\n\n"
+                "Để tìm lịch trống, bạn cần cho biết tên tư vấn viên.\n\n"
+                "💡 Bạn có thể:\n"
+                "• Cho mình biết tên tư vấn viên\n"
+                "• Hỏi 'Cho xem danh sách tư vấn viên'\n"
+                "• Hỏi 'Có tư vấn viên nào chuyên về [lĩnh vực]?'"
+            )
         
-        if not conditions:
-            # No criteria - get any available slots
-            query = """Tìm các khung giờ tư vấn còn trống.
-            Yêu cầu: consultantid, fullname, specialties, date, starttime, endtime, isavailable.
-            QUAN TRỌNG: Chỉ lấy lịch trong TƯƠNG LAI (date >= CURRENT_DATE, nếu date = hôm nay thì time > CURRENT_TIME).
-            Chỉ lấy slot còn trống (isavailable = true). Sắp xếp theo ngày và giờ. """
-        else:
-            # Build query with available conditions using OR logic for flexible matching
-            criteria_text = " hoặc ".join(conditions)
-            query = f"""Tìm các khung giờ tư vấn còn trống thỏa mãn một trong các điều kiện sau: {criteria_text}.
-            Yêu cầu: consultantid, fullname, specialties, date, starttime, endtime, isavailable.
-            QUAN TRỌNG: Chỉ lấy lịch trong TƯƠNG LAI (date >= CURRENT_DATE, nếu date = hôm nay thì time > CURRENT_TIME).
-            Chỉ lấy slot còn trống (isavailable = true). 
-            Ưu tiên: khớp nhiều điều kiện hơn xếp trước. Sắp xếp theo ngày và giờ."""
+        # Build query based on available info
+        query = f'Tìm các khung giờ tư vấn còn trống của tư vấn viên tên "{consultant}"'
+        
+        # Add date filter if provided
+        if date:
+            query += f' vào ngày "{date}"'
+        
+        # Add time filter if provided
+        if time:
+            query += f' vào lúc hoặc sau "{time}"'
+        
+        query += """.\nYêu cầu: consultantid, fullname, specialties, date, starttime, endtime, isavailable.
+QUAN TRỌNG: Chỉ lấy lịch trong TƯƠNG LAI (date >= CURRENT_DATE, nếu date = hôm nay thì time > CURRENT_TIME).
+Chỉ lấy slot còn trống (isavailable = true). Sắp xếp theo ngày và giờ."""
         
         payload = {
             "psid": psid,
@@ -466,37 +442,20 @@ def _query_and_show_available_slots(psid: str, current_info: dict) -> str:
             
             if not slots:
                 # Không tìm thấy slot - vẫn ở collecting, đề xuất thử khác
-                criteria_msg = []
-                if consultant:
-                    criteria_msg.append(f"tư vấn viên {consultant}")
-                if date:
-                    criteria_msg.append(f"ngày {date}")
-                if time:
-                    criteria_msg.append(f"lúc {time}")
-                
-                criteria_str = ", ".join(criteria_msg) if criteria_msg else "tiêu chí đã cho"
-                
                 return (
-                    f"😔 Không tìm thấy lịch trống với {criteria_str}.\n\n"
+                    f"😔 Không tìm thấy lịch trống của tư vấn viên {consultant}.\n\n"
                     "Bạn có thể thử:\n"
-                    "• Chọn ngày khác\n"
-                    "• Chọn giờ khác\n"
                     "• Chọn tư vấn viên khác\n"
-                    "• Hỏi 'Lịch trống của [tên tư vấn viên]?'\n"
-                    "• Hỏi 'Có tư vấn viên nào rảnh ngày [ngày]?'"
+                    "• Hỏi 'Cho xem danh sách tư vấn viên'\n"
+                    "• Hỏi 'Có tư vấn viên nào chuyên về [lĩnh vực]?'"
                 )
             
             # Cache slots and switch to selecting_slot
             session_service.cache_available_slots(psid, slots)
             session_service.set_booking_state(psid, "selecting_slot")
             
-            # Format slots list - show header based on criteria
-            if consultant:
-                message = f"📅 **Lịch trống của {consultant}:**\n\n"
-            elif date:
-                message = f"📅 **Lịch trống ngày {date}:**\n\n"
-            else:
-                message = "📅 **Các lịch trống tìm được:**\n\n"
+            # Format slots list
+            message = f"📅 **Lịch trống của {consultant}:**\n\n"
             
             for i, slot in enumerate(slots[:5], 1):
                 slot_consultant = slot.get("fullname", slot.get("consultant_name", ""))
@@ -515,11 +474,20 @@ def _query_and_show_available_slots(psid: str, current_info: dict) -> str:
             return message
         else:
             logger.error(f"Error querying slots: {result}")
-            return "Đã xảy ra lỗi khi tìm lịch trống. Vui lòng thử lại."
-            
+            return (f"😔 Không tìm thấy lịch trống của tư vấn viên {consultant}.\n\n"
+                    "Bạn có thể thử:\n"
+                    "• Chọn tư vấn viên khác\n"
+                    "• Hỏi 'Cho xem danh sách tư vấn viên'\n"
+                    "• Hỏi 'Có tư vấn viên nào chuyên về [lĩnh vực]?'"
+                    "• Hoặc gõ 'hủy' để hủy quá trình đặt lịch.")
     except Exception as e:
         logger.error(f"Error querying available slots: {e}", exc_info=True)
-        return "Đã xảy ra lỗi. Vui lòng thử lại."
+        # Exception - cũng dùng Bedrock
+        return bedrock_service.generate_natural_error_response(
+            user_intent="tìm lịch trống",
+            error_context=f"Lỗi hệ thống: {str(e)}",
+            suggestions=["Thử lại sau", "Liên hệ hỗ trợ"]
+        )
 
 
 def _show_user_appointments(psid: str, action: str) -> str:
@@ -590,7 +558,7 @@ def _show_user_appointments(psid: str, action: str) -> str:
             
             return message
         else:
-            # Handle SQL query errors (400, 500, etc.)
+            # Handle SQL query errors (400, 500, etc.) - use Bedrock
             error_body = result.get("body", "{}")
             if isinstance(error_body, str):
                 error_body = json.loads(error_body)
@@ -601,11 +569,23 @@ def _show_user_appointments(psid: str, action: str) -> str:
             session_service.reset_appointment_info(psid)
             session_service.set_booking_state(psid, "idle")
             
-            return f"❌ Không thể lấy danh sách lịch hẹn: {error_msg}\n\nVui lòng thử lại sau hoặc liên hệ hỗ trợ."
+            action_text = "hủy" if action == "cancel" else "đổi"
+            error_context = f"User muốn {action_text} lịch hẹn nhưng không thể lấy danh sách lịch hẹn: {error_msg}"
+            
+            natural_response = bedrock_service.generate_natural_error_response(
+                user_intent=f"{action_text} lịch hẹn",
+                error_context=error_context,
+                suggestions=["Thử lại sau", "Liên hệ hỗ trợ", "Đặt lịch mới"]
+            )
+            return natural_response
             
     except Exception as e:
         logger.error(f"Error showing user appointments: {e}", exc_info=True)
-        return "Đã xảy ra lỗi khi lấy danh sách lịch hẹn."
+        return bedrock_service.generate_natural_error_response(
+            user_intent="xem lịch hẹn",
+            error_context=f"Lỗi hệ thống: {str(e)}",
+            suggestions=["Thử lại", "Liên hệ hỗ trợ"]
+        )
 
 
 def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> str:
@@ -808,20 +788,12 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
             if extracted.get("is_query"):
                 query_response = _handle_query_in_booking(psid, user_question)
                 
-                # Add reminder based on booking action and missing info
-                missing = []
+                # Add reminder if still need consultant_name
                 if not current_info.get("consultant_name"):
-                    missing.append("tư vấn viên")
-                if not current_info.get("appointment_date"):
-                    missing.append("ngày")
-                if not current_info.get("appointment_time"):
-                    missing.append("giờ")
-                
-                if missing:
                     if booking_action == "update":
-                        reminder = f"\n\n👉 Hãy cho mình biết thông tin lịch MỚI: {', '.join(missing)}"
+                        reminder = "\n\n👉 Hãy cho mình biết tên tư vấn viên MỚI"
                     else:
-                        reminder = f"\n\n👉 Hãy cho mình biết: {', '.join(missing)} để đặt lịch"
+                        reminder = "\n\n👉 Hãy cho mình biết tên tư vấn viên để đặt lịch"
                     return query_response + reminder
                 
                 return query_response
@@ -836,19 +808,22 @@ def _handle_booking_flow(psid: str, user_question: str, booking_state: str) -> s
                 current_info = session_service.get_appointment_info(psid)
             
             # Check if we have enough info for slot query
-            has_slot_criteria = all([
-                current_info.get("consultant_name"),
-                current_info.get("appointment_date"),
-                current_info.get("appointment_time")
-            ])
+            # CHỈ CẦN: consultant_name
+            has_consultant = bool(current_info.get("consultant_name"))
             
-            if has_slot_criteria:
-                if booking_action == "update":
-                    # For UPDATE: query and show new slots
-                    return _query_and_show_available_slots_for_update(psid, current_info)
+            if has_consultant:
+                # Check if user confirms with ok/yes keywords
+                confirm_keywords = ["ok", "đồng ý", "xác nhận", "được", "yes", "đúng", "ừ", "chính xác", "confirm"]
+                
+                if any(kw in msg_lower for kw in confirm_keywords):
+                    # User xác nhận - query slots
+                    if booking_action == "update":
+                        return _query_and_show_available_slots_for_update(psid, current_info)
+                    else:
+                        return _query_and_show_available_slots(psid, current_info)
                 else:
-                    # For CREATE: query slots
-                    return _query_and_show_available_slots(psid, current_info)
+                    # User chưa xác nhận - hỏi lại
+                    return _generate_collecting_prompt(psid)
             
             # Still need more info
             return _generate_collecting_prompt(psid)
@@ -1003,11 +978,30 @@ def _handle_query_in_booking(psid: str, user_question: str) -> str:
             
             return query_response
         else:
-            return "Xin lỗi, không tìm được thông tin. Bạn có thể hỏi cách khác."
+            # SQL query failed - use Bedrock for natural response
+            error_body = result.get("body", "{}")
+            if isinstance(error_body, str):
+                error_body = json.loads(error_body)
+            error_msg = error_body.get("error", error_body.get("response", ""))
+            
+            logger.error(f"SQL query error in _handle_query_in_booking: {error_msg}")
+            
+            error_context = f"User hỏi '{user_question}' trong quá trình đặt lịch nhưng truy vấn bị lỗi: {error_msg}"
+            
+            natural_response = bedrock_service.generate_natural_error_response(
+                user_intent="hỏi thông tin trong booking",
+                error_context=error_context,
+                suggestions=["Hỏi cách khác", "Tiếp tục đặt lịch", "Gõ 'hủy' để dừng"]
+            )
+            return natural_response
             
     except Exception as e:
         logger.error(f"Error handling booking query: {e}")
-        return "Đã xảy ra lỗi khi tìm kiếm."
+        return bedrock_service.generate_natural_error_response(
+            user_intent="hỏi thông tin",
+            error_context=f"Lỗi hệ thống: {str(e)}",
+            suggestions=["Thử lại", "Tiếp tục đặt lịch"]
+        )
 
 
 def _handle_restart_confirmation(psid: str, user_message: str) -> str:
@@ -1061,7 +1055,7 @@ def _parse_selection(user_message: str) -> Optional[int]:
     return None
 
 
-# _is_question removed - replaced by is_query field from extract_appointment_info
+
 
 
 def _generate_confirmation_message(appointment_info: dict) -> str:
