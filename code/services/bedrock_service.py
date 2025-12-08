@@ -1367,5 +1367,50 @@ Trả lời:"""
 
         response = self._invoke_bedrock(prompt)
         return response
+    
+    def generate_natural_error_response(
+        self,
+        user_intent: str,
+        error_context: str,
+        suggestions: List[str] = None
+    ) -> str:
+        """
+        Generate natural language error response using Bedrock when SQL query fails.
+        
+        Args:
+            user_intent: What user was trying to do (e.g., "tìm lịch trống", "xem lịch hẹn")
+            error_context: Context about the error (e.g., "Không tìm thấy tư vấn viên 'Nguyễn Văn A'")
+            suggestions: List of suggested actions for user
+            
+        Returns:
+            Natural language error message
+        """
+        suggestions_text = ""
+        if suggestions:
+            suggestions_text = "\n\nGợi ý cho user:\n" + "\n".join([f"- {s}" for s in suggestions])
+        
+        prompt = f"""Bạn là trợ lý đặt lịch hẹn thân thiện MeetAssist.
+
+## TÌNH HUỐNG:
+User đang cố: {user_intent}
+Nhưng gặp lỗi: {error_context}
+{suggestions_text}
+
+## YÊU CẦU:
+1. Bạn đóng vai trò như một tư vấn viên hỗ trợ đặt lịch chuyên nghiệp hãy tạo câu trả lời TỰ NHIÊN, THÂN THIỆN bằng tiếng Việt
+2. Giải thích lỗi một cách DỄ HIỂU (không dùng thuật ngữ kỹ thuật)
+3. An ủi user và đưa ra gợi ý hữu ích
+4. Giữ câu trả lời NGẮN GỌN (tối đa 200 ký tự)
+5. Dùng emoji phù hợp để thân thiện hơn
+
+Trả lời:"""
+        
+        try:
+            response = self._invoke_bedrock(prompt)
+            return response
+        except Exception as e:
+            logger.error(f"Error generating natural error response: {e}")
+            # Fallback nếu Bedrock cũng fail
+            return f"😔 Xin lỗi, {user_intent} không thành công. {suggestions[0] if suggestions else 'Vui lòng thử lại.'}"
             
         
