@@ -457,7 +457,7 @@ Chỉ lấy slot còn trống (isavailable = true). Sắp xếp theo ngày và g
             # Format slots list
             message = f"📅 **Lịch trống của {consultant}:**\n\n"
             
-            for i, slot in enumerate(slots[:5], 1):
+            for i, slot in enumerate(slots[:9], 1):
                 slot_consultant = slot.get("fullname", slot.get("consultant_name", ""))
                 slot_date = slot.get("date", slot.get("available_date", ""))
                 slot_time = slot.get("starttime", slot.get("start_time", slot.get("time", "")))

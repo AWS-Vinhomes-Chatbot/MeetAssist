@@ -126,7 +126,13 @@ Note: if you receive an error at this step, please ensure Docker is running on t
 4. After the CDK deployment completes, you must run the DataIndexer Lambda function to populate the embeddings table with database schema information. Use the following AWS CLI command:
 
 ```
-aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region example:aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region ap-northeast-1
+aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region 
+```
+
+
+example:
+```
+aws lambda invoke --function-name DataIndexerStack-DataIndexerFunction --invocation-type Event response.json --region ap-northeast-1
 ```
 
 5. After completing all the steps above, your environment is fully deployed and initialized. You can now start using both the MeetAssist chatbot and the Admin Dashboard. The instructions for each are provided in the sections below.
