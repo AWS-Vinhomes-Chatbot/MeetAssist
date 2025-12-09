@@ -382,7 +382,7 @@ aws cognito-idp admin-create-user --user-pool-id <your-user-pool-id> --username 
 
 **Schedule Management:**
 - View and manage consultant availability
-- Add/edit/delete time slots (8 predefined slots from 8:00 AM to 9:30 PM)
+- Add/edit time slots (8 predefined slots from 8:00 AM to 9:30 PM)
 
 ### Appointments Management Page
 - View all appointments with complete details
@@ -402,12 +402,12 @@ Consultants receive login credentials via email after the admin creates their Co
 - View all appointments with customer details and status
 - Filter by status (All, Pending, Confirmed, Completed, Cancelled)
 - Confirm, complete, or cancel appointments
-- Customers receive automatic email notifications
+- Customers receive automatic email notifications 
 
 ### My Schedule Page
 - View weekly schedule (Monday to Sunday)
 - Navigate between weeks
-- See slot status: Available (green), Booked (blue), Pending (yellow), Past (gray), Unavailable (red)
+- See slot status: Available (green), Past/Unavailable (gray)
 - **Note**: Schedule is view-only. Contact admin to modify availability.
 
 
@@ -430,7 +430,7 @@ This command will:
 
 **Note:** This keeps your source data files in S3 up-to-date with the current state of the database before destroying the RDS instance.
 
-## Destroy the Project
+## Clean Up Resources
 
 After archiving your data, you can safely destroy all resources:
 
