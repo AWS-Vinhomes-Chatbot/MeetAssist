@@ -411,6 +411,34 @@ Consultants receive login credentials via email after the admin creates their Co
 - **Note**: Schedule is view-only. Contact admin to modify availability.
 
 
+# Clean Up Resources
+
+When you're ready to remove the project and clean up all AWS resources, **it's important to back up your data first**.
+
+## Archive Data Before Destroying
+
+**IMPORTANT:** Before running `cdk destroy`, execute the following command to sync the latest data from RDS back to S3:
+
+```powershell
+aws lambda invoke --function-name DashboardStack-ArchiveData --payload "{}" --cli-binary-format raw-in-base64-out NUL
+```
+
+This command will:
+- Pull the latest appointments data from the RDS PostgreSQL database
+- Update the CSV files in your S3 bucket (`meetassist-data-<account-id>-ap-northeast-1/data/`)
+- Ensure your S3 data reflects all changes made through the application
+
+**Note:** This keeps your source data files in S3 up-to-date with the current state of the database before destroying the RDS instance.
+
+## Destroy the Project
+
+After archiving your data, you can safely destroy all resources:
+
+```powershell
+cdk destroy --all
+```
+
+
 
 
 
