@@ -97,9 +97,14 @@ CREATE TABLE IF NOT EXISTS Appointment (
     UpdatedAt TIMESTAMP,
     FOREIGN KEY (ConsultantID) REFERENCES Consultant(ConsultantID),
     FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID),
-    CONSTRAINT UQ_Appointment_DateTime UNIQUE (ConsultantID, Date, Time),
     CONSTRAINT CHK_AppointmentStatus CHECK (Status IN ('pending', 'confirmed', 'completed', 'cancelled'))
 );
+
+-- Partial unique index: Chỉ ngăn double-booking cho các slot chưa bị hủy
+-- Cho phép đặt lại slot đã cancelled
+CREATE UNIQUE INDEX IF NOT EXISTS UQ_Appointment_DateTime 
+ON Appointment (ConsultantID, Date, Time) 
+WHERE Status NOT IN ('cancelled');
 
 -- Bảng Đánh giá cuộc hẹn
 CREATE TABLE IF NOT EXISTS AppointmentFeedback (

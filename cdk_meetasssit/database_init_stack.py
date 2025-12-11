@@ -164,7 +164,7 @@ class DatabaseInitStack(Stack):
         CustomResource(
             self, "db-cr", 
             service_token=provider.service_token,
-            properties={"version": "2025-12-08-v6"}
+            properties={"version": "2025-12-08-v7"}
         )
         
         # Output the secret ARNs

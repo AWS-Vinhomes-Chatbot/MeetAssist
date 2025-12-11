@@ -66,7 +66,7 @@ export default function AppointmentsPage() {
   // Fetch available slots when consultant or date changes
   useEffect(() => {
     if (formData.consultantid && formData.date && isModalOpen) {
-      fetchAvailableSlots(formData.consultantid, formData.date);
+      fetchAvailableSlots(formData.consultantid, formData.date, editingAppointment?.time);
     }
   }, [formData.consultantid, formData.date, isModalOpen]);
 
@@ -218,42 +218,6 @@ export default function AppointmentsPage() {
       alert('Failed to delete appointment');
     }
   };
-
-  // Load available slots when consultant and date are selected
-  useEffect(() => {
-    const loadAvailableSlots = async () => {
-      if (!formData.consultantid || !formData.date) {
-        setAvailableSlots([]);
-        return;
-      }
-
-      try {
-        setLoadingSlots(true);
-        const response = await getScheduleByConsultant(
-          formData.consultantid,
-          formData.date,
-          formData.date
-        );
-
-        if (response.success && response.schedules) {
-          // Filter only available slots (no appointment and isavailable=true)
-          const availableOnly = response.schedules.filter(
-            (slot: any) => slot.isavailable && !slot.has_appointment
-          );
-          setAvailableSlots(availableOnly);
-        } else {
-          setAvailableSlots([]);
-        }
-      } catch (error) {
-        console.error('Error loading available slots:', error);
-        setAvailableSlots([]);
-      } finally {
-        setLoadingSlots(false);
-      }
-    };
-
-    loadAvailableSlots();
-  }, [formData.consultantid, formData.date]);
 
   return (
     <div className="min-h-screen">
