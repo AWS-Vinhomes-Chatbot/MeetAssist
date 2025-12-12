@@ -63,12 +63,13 @@ def get_app_secret():
 def verify_signature(payload: str, signature: str) -> bool:
     """Verify Facebook webhook signature."""
     if not signature:
+        logger.error("No signature provided in webhook request")
         return False
     
     app_secret = get_app_secret()
     if not app_secret:
-        logger.warning("No app secret configured, skipping signature verification")
-        return True  # Skip verification if no secret configured
+        logger.error("CRITICAL: No app secret configured - cannot verify webhook authenticity. Rejecting request.")
+        return False  # Fail closed - reject if no secret configured
     
     try:
         # Facebook sends signature as "sha256=<hash>"
@@ -153,9 +154,10 @@ def handle_webhook(event):
                    event.get('headers', {}).get('x-hub-signature-256')
         
         if not verify_signature(body, signature):
-            logger.warning("Invalid webhook signature")
-            # Still return 200 to prevent Facebook from retrying
-            return {'statusCode': 200, 'body': 'OK'}
+            source_ip = event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown')
+            logger.error(f"Invalid webhook signature from IP: {source_ip}")
+            # Return 403 to block malicious requests
+            return {'statusCode': 403, 'body': json.dumps({'error': 'Invalid signature'})}
         
         # Parse body
         try:
