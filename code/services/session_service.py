@@ -166,7 +166,7 @@ class SessionService:
         self.similarity_threshold = similarity_threshold or float(os.environ.get("CACHE_SIMILARITY_THRESHOLD", "0.8"))
         
         # ✅ Load context settings from environment
-        self.MAX_CONTEXT_TURNS = int(os.environ.get("MAX_CONTEXT_TURNS", "3"))
+        self.MAX_CONTEXT_TURNS = int(os.environ.get("MAX_CONTEXT_TURNS", "5"))
         
         # ✅ Deduplication: keep track of processed message IDs
         self.PROCESSED_MESSAGES_TTL = 300  # 5 minutes TTL for processed message IDs

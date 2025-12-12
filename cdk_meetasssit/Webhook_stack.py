@@ -181,7 +181,7 @@ class UserMessengerBedrockStack(Stack):
         chat_processor.add_event_source(
             lambda_event_sources.SqsEventSource(
                 message_queue,
-                batch_size=1,  # Process one message at a time for FIFO ordering
+                batch_size=5,  # Process one message at a time for FIFO ordering
                 report_batch_item_failures=True,  # Enable partial batch failure
             )
         )
